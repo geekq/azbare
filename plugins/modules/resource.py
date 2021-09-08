@@ -328,7 +328,7 @@ class AzureRMResource(AzureRMModuleBase):
             orphan = None
             rargs = dict()
             rargs['subscription'] = self.subscription_id
-            rargs['resource_group'] = self.definition['resourceGroup']
+            rargs['resource_group'] = self.definition.pop('resourceGroup')
             rargs['name'] = self.definition['name']
             if self.definition['type']:
                 (rargs['namespace'], rargs['type']) = self.definition['type'].split('/') # from e.g. `type: Microsoft.ServiceBus/Namespaces`
@@ -399,7 +399,9 @@ class AzureRMResource(AzureRMModuleBase):
             else:
                 try:
                     response = json.loads(original.text)
+                    # self.results['previous_definition'] = response # for debugging the `force_update: false` optimization
                     needs_update = (dict_merge(response, self.definition) != response)
+                    # self.results['needs_update'] = needs_update # for debugging the `force_update: false` optimization
                 except Exception:
                     pass
 
