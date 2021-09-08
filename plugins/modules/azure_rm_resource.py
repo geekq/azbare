@@ -11,11 +11,10 @@ __metaclass__ = type
 DOCUMENTATION = '''
 ---
 module: azure_rm_resource
-version_added: "0.1.2"
+version_added: "1.0.0"
 short_description: Create any Azure resource
 description:
     - Create, update or delete any Azure resource using Azure REST API.
-    - This module gives access to resources that are not supported via Ansible modules.
     - Refer to U(https://docs.microsoft.com/en-us/rest/api/) regarding details related to specific resource REST API.
 
 options:
@@ -24,7 +23,10 @@ options:
             - Azure RM Resource URL.
     api_version:
         description:
-            - Specific API version to be used.
+            - Specific API version to be used. By default the latest version is used.
+            - You can find all the API versions available for a particular resource type with e.g.:
+            - az provider show --namespace Microsoft.ServiceBus --query "resourceTypes[?resourceType=='namespaces'].apiVersions"
+
     provider:
         description:
             - Provider type.
@@ -54,9 +56,9 @@ options:
             name:
                 description:
                     - Subresource name.
-    body:
+    definition:
         description:
-            - The body of the HTTP request/response to the web service.
+            - Azure resource definition as `az resource show -o yaml` would print it. This allows for an easy development cycle: create a resource interactively or with a some `az` command. Then print the resource definition with `az resource show`, add some templating if needed. Done.
     method:
         description:
             - The HTTP method of the request or response. It must be uppercase.
@@ -74,19 +76,21 @@ options:
             - A valid, numeric, HTTP status code that signifies success of the request. Can also be comma separated list of status codes.
         type: list
         default: [ 200, 201, 202 ]
-    idempotency:
+    force_update:
         description:
-            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(body).
+            - By default an existing resource will be checked using I(method=GET) first and compared with I(definition).
+            - If all parameters match, an update will be skipped for performance.
+            - By setting this parameter to 'yes' you can force executing I(method=PUT).
         default: no
         type: bool
     polling_timeout:
         description:
-            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(body).
+            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(definition).
         default: 0
         type: int
     polling_interval:
         description:
-            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(body).
+            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(definition).
         default: 60
         type: int
     state:
@@ -106,14 +110,19 @@ author:
 '''
 
 EXAMPLES = '''
-  - name: Update scaleset info using azure_rm_resource
-    azure_rm_resource:
-      resource_group: myResourceGroup
-      provider: compute
-      resource_type: virtualmachinescalesets
-      resource_name: myVmss
-      api_version: "2017-12-01"
-      body: { body }
+    - name: Define a service bus namespace
+      geekq.azbare.resource:
+        api_version: '2017-04-01'
+        definition:
+          location: West Europe
+          name: bus1
+          resourceGroup: experimental-applicationdevelopment
+          sku:
+            name: Standard
+            tier: Standard
+          tags:
+            env: localdev
+          type: Microsoft.ServiceBus/Namespaces
 '''
 
 RETURN = '''
@@ -256,14 +265,14 @@ class AzureRMResource(AzureRMModuleBase):
                 default='PUT',
                 choices=["GET", "PUT", "POST", "HEAD", "PATCH", "DELETE", "MERGE"]
             ),
-            body=dict(
+            definition=dict(
                 type='raw'
             ),
             status_code=dict(
                 type='list',
                 default=[200, 201, 202]
             ),
-            idempotency=dict(
+            force_update=dict(
                 type='bool',
                 default=False
             ),
@@ -298,11 +307,11 @@ class AzureRMResource(AzureRMModuleBase):
         self.subresource = []
         self.method = None
         self.status_code = []
-        self.idempotency = False
+        self.force_update = False
         self.polling_timeout = None
         self.polling_interval = None
         self.state = None
-        self.body = None
+        self.definition = None
         super(AzureRMResource, self).__init__(self.module_arg_spec, supports_tags=False)
 
     def exec_module(self, **kwargs):
@@ -319,10 +328,10 @@ class AzureRMResource(AzureRMModuleBase):
             orphan = None
             rargs = dict()
             rargs['subscription'] = self.subscription_id
-            rargs['resource_group'] = self.body['resourceGroup']
-            rargs['name'] = self.body['name']
-            if self.body['type']:
-                (rargs['namespace'], rargs['type']) = self.body['type'].split('/') # from e.g. `type: Microsoft.ServiceBus/Namespaces`
+            rargs['resource_group'] = self.definition['resourceGroup']
+            rargs['name'] = self.definition['name']
+            if self.definition['type']:
+                (rargs['namespace'], rargs['type']) = self.definition['type'].split('/') # from e.g. `type: Microsoft.ServiceBus/Namespaces`
                 self.url = resource_id(**rargs)
             else: # legacy - TODO check if we can remove it
                 if not (self.provider is None or self.provider.lower().startswith('.microsoft')):
@@ -381,7 +390,7 @@ class AzureRMResource(AzureRMModuleBase):
         needs_update = True
         response = None
 
-        if self.idempotency:
+        if not self.force_update:
             original = self.mgmt_client.query(self.url, "GET", query_parameters, None, None, [200, 404], 0, 0)
 
             if original.status_code == 404:
@@ -390,7 +399,7 @@ class AzureRMResource(AzureRMModuleBase):
             else:
                 try:
                     response = json.loads(original.text)
-                    needs_update = (dict_merge(response, self.body) != response)
+                    needs_update = (dict_merge(response, self.definition) != response)
                 except Exception:
                     pass
 
@@ -399,7 +408,7 @@ class AzureRMResource(AzureRMModuleBase):
                                               self.method,
                                               query_parameters,
                                               header_parameters,
-                                              self.body,
+                                              self.definition,
                                               self.status_code,
                                               self.polling_timeout,
                                               self.polling_interval)
