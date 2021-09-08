@@ -10,7 +10,7 @@ __metaclass__ = type
 
 DOCUMENTATION = '''
 ---
-module: azure_rm_resource
+module: resource
 version_added: "1.0.0"
 short_description: Create any Azure resource
 description:
