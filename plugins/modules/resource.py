@@ -38,49 +38,6 @@ options:
             - or with a some `az` command. Then print the resource definition with
             - `az resource show`, remove properties like `createdAt`, `provisioningState`,
             - add some templating if needed. Done.
-
-    provider:
-        description:
-            - Provider type.
-            - Required if URL is not specified.
-    resource_type:
-        description:
-            - Resource type.
-            - Required if URL is not specified.
-    resource_name:
-        description:
-            - Resource name.
-            - Required if URL Is not specified.
-    subresource:
-        description:
-            - List of subresources.
-        suboptions:
-            namespace:
-                description:
-                    - Subresource namespace.
-            type:
-                description:
-                    - Subresource type.
-            name:
-                description:
-                    - Subresource name.
-    method:
-        description:
-            - The HTTP method of the request or response. It must be uppercase.
-        choices:
-            - GET
-            - PUT
-            - POST
-            - HEAD
-            - PATCH
-            - DELETE
-            - MERGE
-        default: "PUT"
-    status_code:
-        description:
-            - A valid, numeric, HTTP status code that signifies success of the request. Can also be comma separated list of status codes.
-        type: list
-        default: [ 200, 201, 202 ]
     force_update:
         description:
             - By default an existing resource will be checked using I(method=GET) first and compared with I(definition).
@@ -90,12 +47,12 @@ options:
         type: bool
     polling_timeout:
         description:
-            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(definition).
+            - How long to wait until the resource is updated/created. Default: forever.
         default: 0
         type: int
     polling_interval:
         description:
-            - If enabled, idempotency check will be done by using I(method=GET) first and then comparing with I(definition).
+            - How often to check if the resource is updated/created.
         default: 60
         type: int
     state:
@@ -217,36 +174,14 @@ class AzureRMResource(AzureRMModuleBase):
             path=dict(
                 type='str'
             ),
-            provider=dict(
-                type='str',
-            ),
             group=dict(
                 type='str',
-            ),
-            resource_type=dict(
-                type='str',
-            ),
-            resource_name=dict(
-                type='str',
-            ),
-            subresource=dict(
-                type='list',
-                default=[]
             ),
             api_version=dict(
                 type='str'
             ),
-            method=dict(
-                type='str',
-                default='PUT',
-                choices=["GET", "PUT", "POST", "HEAD", "PATCH", "DELETE", "MERGE"]
-            ),
             definition=dict(
                 type='raw'
-            ),
-            status_code=dict(
-                type='list',
-                default=[200, 201, 202]
             ),
             force_update=dict(
                 type='bool',
@@ -274,15 +209,7 @@ class AzureRMResource(AzureRMModuleBase):
         self.mgmt_client = None
         self.path = None
         self.api_version = None
-        self.provider = None
         self.group = None
-        self.resource_type = None
-        self.resource_name = None
-        self.subresource_type = None
-        self.subresource_name = None
-        self.subresource = []
-        self.method = None
-        self.status_code = []
         self.force_update = False
         self.polling_timeout = None
         self.polling_interval = None
@@ -296,54 +223,15 @@ class AzureRMResource(AzureRMModuleBase):
         self.mgmt_client = self.get_mgmt_svc_client(GenericRestClient,
                                                     base_url=self._cloud_environment.endpoints.resource_manager)
 
-        if self.state == 'absent':
-            self.method = 'DELETE'
-            self.status_code.append(204)
-
-        self.url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
-        if self.url is None:
-            orphan = None
-            rargs = dict()
-            rargs['subscription'] = self.subscription_id
-            rargs['resource_group'] = self.definition.pop('resourceGroup')
-            rargs['name'] = self.definition['name']
-            if self.definition['type']:
-                (rargs['namespace'], rargs['type']) = self.definition['type'].split('/', 1) # from e.g. `type: Microsoft.ServiceBus/Namespaces`
-                self.url = resource_id(**rargs)
-            else: # legacy - TODO check if we can remove it
-                if not (self.provider is None or self.provider.lower().startswith('.microsoft')):
-                    rargs['namespace'] = "Microsoft." + self.provider
-                else:
-                    rargs['namespace'] = self.provider
-
-                if self.resource_type is not None and self.resource_name is not None:
-                    rargs['type'] = self.resource_type
-                    rargs['name'] = self.resource_name
-                    for i in range(len(self.subresource)):
-                        resource_ns = self.subresource[i].get('namespace', None)
-                        resource_type = self.subresource[i].get('type', None)
-                        resource_name = self.subresource[i].get('name', None)
-                        if resource_type is not None and resource_name is not None:
-                            rargs['child_namespace_' + str(i + 1)] = resource_ns
-                            rargs['child_type_' + str(i + 1)] = resource_type
-                            rargs['child_name_' + str(i + 1)] = resource_name
-                        else:
-                            orphan = resource_type
-                else:
-                    orphan = self.resource_type
-
-                self.url = resource_id(**rargs)
-
-            if orphan is not None:
-                self.url += '/' + orphan
+        url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
 
         # if api_version was not specified, get latest one
         if not self.api_version:
             try:
                 # extract provider and resource type
-                if "/providers/" in self.url:
-                    provider = self.url.split("/providers/")[1].split("/")[0]
-                    resourceType = self.url.split(provider + "/")[1].split("/")[0]
+                if "/providers/" in url:
+                    provider = url.split("/providers/")[1].split("/")[0]
+                    resourceType = url.split(provider + "/")[1].split("/")[0]
                     url = "/subscriptions/" + self.subscription_id + "/providers/" + provider
                     api_versions = json.loads(self.mgmt_client.query(url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
                     for rt in api_versions['resourceTypes']:
@@ -368,7 +256,7 @@ class AzureRMResource(AzureRMModuleBase):
         response = None
 
         if not self.force_update:
-            original = self.mgmt_client.query(self.url, "GET", query_parameters, None, None, [200, 404], 0, 0)
+            original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
 
             if original.status_code == 404:
                 if self.state == 'absent':
@@ -382,13 +270,19 @@ class AzureRMResource(AzureRMModuleBase):
                 except Exception:
                     pass
 
+        method = 'PUT'
+        status_code = [200, 201, 202]
+        if self.state == 'absent':
+            method = 'DELETE'
+            status_code.append(204)
+
         if needs_update:
-            response = self.mgmt_client.query(self.url,
-                                              self.method,
+            response = self.mgmt_client.query(url,
+                                              method,
                                               query_parameters,
                                               header_parameters,
                                               self.definition,
-                                              self.status_code,
+                                              status_code,
                                               self.polling_timeout,
                                               self.polling_interval)
             if self.state == 'present':
