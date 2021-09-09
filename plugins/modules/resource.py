@@ -40,7 +40,7 @@ options:
         required: true
     definition:
         description:
-            - Required, unless state: absent.
+            - Required, if state: present.
             - Azure resource definition as `az resource show -o yaml` would print it.
             - This allows for an easy development cycle: create a resource interactively
             - or with a some `az` command. Then print the resource definition with
@@ -66,10 +66,13 @@ options:
     state:
         description:
             - Assert the state of the resource. Use C(present) to create or update resource or C(absent) to delete resource.
+            - There is special mode to use I(method=POST) for some special operations like acquire authorization keys for
+            - a service bus topic (requires POST to a special url).
         default: present
         choices:
             - absent
             - present
+            - special-post
 
 # extends_documentation_fragment:
 #    - azure.azcollection.azure
@@ -103,6 +106,16 @@ EXAMPLES = '''
           location: West Europe
           properties:
             maxSizeInMegabytes: 5120
+
+
+    - name: Get the service bus connection strings
+      geekq.azbare.resource:
+        api_version: '2017-04-01'
+        group: experimental-applicationdevelopment
+        path: /providers/Microsoft.ServiceBus/namespaces/bus1/topics/mytopic/authorizationRules/mysubscriber/ListKeys
+        state: special-post
+      register: bus_access # will return connection strings and secret keys
+
 '''
 
 RETURN = '''
@@ -186,7 +199,7 @@ class AzureRMResource(AzureRMModuleBase):
             force_update=dict(type='bool', default=False),
             polling_timeout=dict(type='int', default=0),
             polling_interval=dict(type='int', default=10),
-            state=dict(type='str', default='present', choices=['present', 'absent'])
+            state=dict(type='str', default='present', choices=['present', 'absent', 'special-post'])
         )
         # store the results of the module operation
         self.results = dict(
@@ -207,8 +220,8 @@ class AzureRMResource(AzureRMModuleBase):
     def exec_module(self, **kwargs):
         for key in self.module_arg_spec:
             setattr(self, key, kwargs[key])
-        if self.definition is None and self.state != 'absent':
-            self.fail("'definition' parameter is required unless state=='absent'")
+        if self.definition is None and self.state == 'present':
+            self.fail("'definition' parameter is required if state=='present'")
 
         self.mgmt_client = self.get_mgmt_svc_client(GenericRestClient,
                                                     base_url=self._cloud_environment.endpoints.resource_manager)
@@ -244,6 +257,11 @@ class AzureRMResource(AzureRMModuleBase):
 
         needs_update = True
         response = None
+
+        if self.state == 'special-post':
+            original = self.mgmt_client.query(url, "POST", query_parameters, None, None, [200], 0, 0)
+            self.results['response'] = json.loads(original.text)
+            return self.results
 
         if not self.force_update:
             original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
