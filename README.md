@@ -1,11 +1,11 @@
 # Minimalistic ansible collection for managing Azure resources
 
-There is an existing azcollection, supporting a lot of different types
-of azure resources, some examples and documentation.
+There is an existing `azcollection`, which supports a lot of different types
+of azure resources, includes examples and documentation.
 
-Unforturnately, the azcollection is not well maintained:
+Unforturnately, there are some problems with maintenance:
 
-* still based on the old versions of Microsoft Azure API and is having problems updating its dependencies https://github.com/ansible-collections/azure/issues/477
+* it is still based on the old versions of Microsoft Azure API and is having problems updating its dependencies https://github.com/ansible-collections/azure/issues/477
 * does not include all resources Azures supports, especially the new ones
 * lacks support for advanced options for many resources, especially for hosting resource inside virtual private networks (relevant for my enterprise customers)
 * conflicts with official azure command line client `az` - it is not possible/easy to use the both on the same computer
@@ -17,33 +17,54 @@ such change requires adjustment to the implementation of these ansible
 modules, which is not feasible for a project driven by a couple of
 enthusiasts.
 
-For a cloud engineer productivity instead of tinkering with az CLI or
-Portal first, than trying to find out, which parameters to use for e.g.
-https://docs.ansible.com/ansible/latest/collections/azure/azcollection/azure_rm_servicebus_module.html
-I wish something more streamlined.
-
-*Welcome to `azbare`!*
-
 Heavily inspired by `resource` and `resource_info` modules of the
 azcollection, without the ballast of obsolete dependencies, it supports
-*all* Azure resources with the newest API and allows for the following,
-high-productivity workflow:
+*all* Azure resources with the newest API and allows for a
+high-productivity workflow, described below.
+
+**Welcome to `azbare`!**
+
+
+## Ideal workflow
+
+For a cloud engineer productivity following workflow would be desirable:
 
 Try out something with resource specific az command like `az servicebus
-namespace create -g mygroup -n bus1 --sku Standard`, the extensive `az
-servicebus --help` documentation helps a lot.
+namespace create -g experimental-applicationdevelopment -n bus1 --sku
+Standard` (assumes the group `experimental-applicationdevelopment`
+already exists). The extensive documentation behind `az servicebus
+--help` helps a lot. Alternatively or optionaly you can check/edit the
+resource interactively via Azure Portal.
 
 :arrow_down:
 
-Alternatively or optionaly you can check/edit the resource interactively via Azure Portal. :arrow_right:
-Get a generic resource definition with `az resource show -g mygroup
---resource-type "Microsoft.ServiceBus/Namespaces" -n bus1 -o yaml`,
-which prints the resource definition, and can also be used as input by
-`az resource @resource-definition-file`
+Find out the resource id with `az servicebus namespace list -o yaml`
 
-:arrow_right:
+:arrow_down:
 
-Feed that resource definition to the new azbare.resource module to create the resource.
+Now print a generic resource definition with
+`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/devinfra/providers/Microsoft.ServiceBus/namespaces/bus1`
+
+:arrow_down:
+
+Remove empty (`null`) and other not relevant parameters from the output
+and feed that content to the `definition` parameter of the new
+azbare.resource module to create the resource. Set `group` and `path`
+based on the `id` value.
+
+    - name: Define a service bus namespace
+      geekq.azbare.resource:
+        api_version: '2017-04-01'
+        group: experimental-applicationdevelopment
+        path: /providers/Microsoft.ServiceBus/namespaces/bus1
+        definition:
+          location: West Europe
+          sku:
+            name: Premium
+            tier: Premium
+          tags:
+            env: myenv
+
 
 ## Installation
 
