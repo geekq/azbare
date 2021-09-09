@@ -20,9 +20,12 @@ description:
 options:
     api_version:
         description:
-            - Specific API version to be used. By default the latest version is used.
+            - Specific API version to be used. By default the latest non-preview version is used.
             - You can find all the API versions available for a particular resource type with e.g.:
             - az provider show --namespace Microsoft.ServiceBus --query "resourceTypes[?resourceType=='namespaces'].apiVersions"
+            - Though the parameter is optional, you can make the execution faster (save one API call)
+            - and more reliable (prepare for future Azure API changes),
+            - if you find out the value in advance and set it explicitly.
     group:
         description:
             - Resource group to be used.
@@ -232,11 +235,12 @@ class AzureRMResource(AzureRMModuleBase):
                 if "/providers/" in url:
                     provider = url.split("/providers/")[1].split("/")[0]
                     resourceType = url.split(provider + "/")[1].split("/")[0]
-                    url = "/subscriptions/" + self.subscription_id + "/providers/" + provider
-                    api_versions = json.loads(self.mgmt_client.query(url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
+                    providers_url = "/subscriptions/" + self.subscription_id + "/providers/" + provider
+                    api_versions = json.loads(self.mgmt_client.query(providers_url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
+                    self.results['debug_api_version'] = api_versions
                     for rt in api_versions['resourceTypes']:
                         if rt['resourceType'].lower() == resourceType.lower():
-                            self.api_version = rt['apiVersions'][0]
+                            self.api_version = next(v for v in rt['apiVersions'] if 'preview' not in v)
                             break
                 else:
                     # if there's no provider in API version, assume Microsoft.Resources
