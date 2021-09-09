@@ -43,17 +43,14 @@ Find out the resource id with `az servicebus namespace list -o yaml | grep myexa
 
 :arrow_down:
 
-Now print a generic resource definition with
-`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/devinfra/providers/Microsoft.ServiceBus/namespaces/myexample-bus1`
+Now print a generic resource definition. You can already filter out some
+`null` values with grep:
+`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/devinfra/providers/Microsoft.ServiceBus/namespaces/myexample-bus1 | grep -v ': null'`
 
 ```
-id: /subscriptions/xxxxx-....-xxxx/resourceGroups/experimental-applicationdevelopment/providers/Microsoft.ServiceBus/namespaces/myexample-bus1
-identity: null
-kind: null
+id: /subscriptions/xxxxx-....
 location: West Europe
-managedBy: null
 name: myexample-bus1
-plan: null
 properties:
   createdAt: '2021-09-09T19:41:47.587Z'
   metricId: xxxx-8b05-xxxx-ad6d-6f43b47f438f:myexample-bus1
@@ -63,11 +60,7 @@ properties:
   updatedAt: '2021-09-09T19:42:32.827Z'
 resourceGroup: experimental-applicationdevelopment
 sku:
-  capacity: null
-  family: null
-  model: null
   name: Standard
-  size: null
   tier: Standard
 tags: {}
 type: Microsoft.ServiceBus/Namespaces
@@ -82,9 +75,8 @@ based on the `id` value.
 
     - name: Define a service bus namespace
       geekq.azbare.resource:
-        api_version: '2017-04-01'
         group: experimental-applicationdevelopment
-        path: /providers/Microsoft.ServiceBus/namespaces/bus1
+        path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
         definition:
           location: West Europe
           sku:
@@ -92,7 +84,6 @@ based on the `id` value.
             tier: Premium
           tags:
             env: myenv
-
 
 ## Installation
 
