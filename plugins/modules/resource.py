@@ -1,5 +1,7 @@
 #!/usr/bin/python
 #
+# Copyright (c) 2021 Vladimir Dobriakov, <vladimir@infrastructure-as-code.de>
+# Based on work / inspired by:
 # Copyright (c) 2018 Zim Kalinowski, <zikalino@microsoft.com>
 #
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
@@ -28,14 +30,17 @@ options:
             - if you find out the value in advance and set it explicitly.
     group:
         description:
-            - Resource group to be used.
+            - Name of the Azure resource group to be used.
+        required: true
     path:
         description:
-            - Part of the Azure RM Resource url, as printed by `az resource show` command,
+            - Part of the Azure RM resource url, as printed by `az resource show` command,
             - but without the subscription_id part (will be detected automatically)
-            - and without resourceGroup part (please provide via separate `group` parameter.
+            - and without resourceGroup part (please provide via separate `group` parameter).
+        required: true
     definition:
         description:
+            - Required, unless state: absent.
             - Azure resource definition as `az resource show -o yaml` would print it.
             - This allows for an easy development cycle: create a resource interactively
             - or with a some `az` command. Then print the resource definition with
@@ -55,8 +60,8 @@ options:
         type: int
     polling_interval:
         description:
-            - How often to check if the resource is updated/created.
-        default: 60
+            - How often to check if the resource is updated/created. In seconds.
+        default: 10
         type: int
     state:
         description:
@@ -177,10 +182,10 @@ class AzureRMResource(AzureRMModuleBase):
             api_version=dict(type='str'),
             path=dict(type='str', required=True),
             group=dict(type='str', required=True),
-            definition=dict(type='raw', required=True),
+            definition=dict(type='raw'),
             force_update=dict(type='bool', default=False),
             polling_timeout=dict(type='int', default=0),
-            polling_interval=dict(type='int', default=60),
+            polling_interval=dict(type='int', default=10),
             state=dict(type='str', default='present', choices=['present', 'absent'])
         )
         # store the results of the module operation
@@ -202,6 +207,9 @@ class AzureRMResource(AzureRMModuleBase):
     def exec_module(self, **kwargs):
         for key in self.module_arg_spec:
             setattr(self, key, kwargs[key])
+        if self.definition is None and self.state != 'absent':
+            self.fail("'definition' parameter is required unless state=='absent'")
+
         self.mgmt_client = self.get_mgmt_svc_client(GenericRestClient,
                                                     base_url=self._cloud_environment.endpoints.resource_manager)
 
@@ -259,19 +267,13 @@ class AzureRMResource(AzureRMModuleBase):
             status_code.append(204)
 
         if needs_update:
-            response = self.mgmt_client.query(url,
-                                              method,
-                                              query_parameters,
-                                              header_parameters,
-                                              self.definition,
-                                              status_code,
-                                              self.polling_timeout,
-                                              self.polling_interval)
+            updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
+                                              status_code, self.polling_timeout, self.polling_interval)
             if self.state == 'present':
                 try:
-                    response = json.loads(response.text)
+                    response = json.loads(updated.text)
                 except Exception:
-                    response = response.text
+                    response = updated.text
             else:
                 response = None
 
