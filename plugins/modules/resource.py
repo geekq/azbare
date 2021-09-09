@@ -174,35 +174,14 @@ class AzureRMResource(AzureRMModuleBase):
     def __init__(self):
         # define user inputs into argument
         self.module_arg_spec = dict(
-            path=dict(
-                type='str'
-            ),
-            group=dict(
-                type='str',
-            ),
-            api_version=dict(
-                type='str'
-            ),
-            definition=dict(
-                type='raw'
-            ),
-            force_update=dict(
-                type='bool',
-                default=False
-            ),
-            polling_timeout=dict(
-                type='int',
-                default=0
-            ),
-            polling_interval=dict(
-                type='int',
-                default=60
-            ),
-            state=dict(
-                type='str',
-                default='present',
-                choices=['present', 'absent']
-            )
+            api_version=dict(type='str'),
+            path=dict(type='str', required=True),
+            group=dict(type='str', required=True),
+            definition=dict(type='raw', required=True),
+            force_update=dict(type='bool', default=False),
+            polling_timeout=dict(type='int', default=0),
+            polling_interval=dict(type='int', default=60),
+            state=dict(type='str', default='present', choices=['present', 'absent'])
         )
         # store the results of the module operation
         self.results = dict(
@@ -237,7 +216,6 @@ class AzureRMResource(AzureRMModuleBase):
                     resourceType = url.split(provider + "/")[1].split("/")[0]
                     providers_url = "/subscriptions/" + self.subscription_id + "/providers/" + provider
                     api_versions = json.loads(self.mgmt_client.query(providers_url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
-                    self.results['debug_api_version'] = api_versions
                     for rt in api_versions['resourceTypes']:
                         if rt['resourceType'].lower() == resourceType.lower():
                             self.api_version = next(v for v in rt['apiVersions'] if 'preview' not in v)
