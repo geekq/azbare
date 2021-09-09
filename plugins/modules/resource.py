@@ -18,22 +18,30 @@ description:
     - Refer to U(https://docs.microsoft.com/en-us/rest/api/) regarding details related to specific resource REST API.
 
 options:
-    url:
-        description:
-            - Azure RM Resource URL.
     api_version:
         description:
             - Specific API version to be used. By default the latest version is used.
             - You can find all the API versions available for a particular resource type with e.g.:
             - az provider show --namespace Microsoft.ServiceBus --query "resourceTypes[?resourceType=='namespaces'].apiVersions"
+    group:
+        description:
+            - Resource group to be used.
+    path:
+        description:
+            - Part of the Azure RM Resource url, as printed by `az resource show` command,
+            - but without the subscription_id part (will be detected automatically)
+            - and without resourceGroup part (please provide via separate `group` parameter.
+    definition:
+        description:
+            - Azure resource definition as `az resource show -o yaml` would print it.
+            - This allows for an easy development cycle: create a resource interactively
+            - or with a some `az` command. Then print the resource definition with
+            - `az resource show`, remove properties like `createdAt`, `provisioningState`,
+            - add some templating if needed. Done.
 
     provider:
         description:
             - Provider type.
-            - Required if URL is not specified.
-    resource_group:
-        description:
-            - Resource group to be used.
             - Required if URL is not specified.
     resource_type:
         description:
@@ -56,9 +64,6 @@ options:
             name:
                 description:
                     - Subresource name.
-    definition:
-        description:
-            - Azure resource definition as `az resource show -o yaml` would print it. This allows for an easy development cycle: create a resource interactively or with a some `az` command. Then print the resource definition with `az resource show`, add some templating if needed. Done.
     method:
         description:
             - The HTTP method of the request or response. It must be uppercase.
@@ -105,6 +110,7 @@ options:
 #    - azure.azcollection.azure
 
 author:
+    - Vladimir Dobriakov (@geekq)
     - Zim Kalinowski (@zikalino)
 
 '''
@@ -113,22 +119,32 @@ EXAMPLES = '''
     - name: Define a service bus namespace
       geekq.azbare.resource:
         api_version: '2017-04-01'
+        group: experimental-applicationdevelopment
+        path: /providers/Microsoft.ServiceBus/namespaces/bus1
         definition:
           location: West Europe
-          name: bus1
-          resourceGroup: experimental-applicationdevelopment
           sku:
-            name: Standard
-            tier: Standard
+            name: Premium
+            tier: Premium
           tags:
-            env: localdev
-          type: Microsoft.ServiceBus/Namespaces
+            env: myenv
+
+    - name: Define message queue topic
+      geekq.azbare.resource:
+        api_version: '2017-04-01'
+        group: experimental-applicationdevelopment
+        path: /providers/Microsoft.ServiceBus/namespaces/bus1/topics/transfers
+        definition:
+          location: West Europe
+          properties:
+            maxSizeInMegabytes: 5120
 '''
 
 RETURN = '''
 response:
     description:
-        - Response specific to resource type.
+        - Response specific to resource type with the same structure you would get with
+        - `az resource show -o yaml --ids /subscriptions/xxxx...xxxx/resourceGroups/experimental-applicationdevelopment/providers/Microsoft.ServiceBus/namespaces/bus1`
     returned: always
     type: complex
     contains:
@@ -137,13 +153,7 @@ response:
                 - Resource ID.
             type: str
             returned: always
-            sample: "/subscriptions/xxxx...xxxx/resourceGroups/v-xisuRG/providers/Microsoft.Storage/storageAccounts/staccb57dc95183"
-        kind:
-            description:
-                - The kind of storage.
-            type: str
-            returned: always
-            sample: Storage
+            sample: "/subscriptions/xxxx...xxxx/resourceGroups/experimental-applicationdevelopment/providers/Microsoft.ServiceBus/namespaces/bus1"
         location:
             description:
                 - The resource location, defaults to location of the resource group.
@@ -152,70 +162,36 @@ response:
             sample: eastus
         name:
             description:
-                The storage account name.
+                The resource name.
             type: str
             returned: always
-            sample: staccb57dc95183
-        properties:
-            description:
-                - The storage account's related properties.
-            type: dict
-            returned: always
-            sample: {
-                    "creationTime": "2019-06-13T06:34:33.0996676Z",
-                    "encryption": {
-                                  "keySource": "Microsoft.Storage",
-                                  "services": {
-                                              "blob": {
-                                              "enabled": true,
-                                              "lastEnabledTime": "2019-06-13T06:34:33.1934074Z"
-                                                      },
-                                              "file": {
-                                                      "enabled": true,
-                                                      "lastEnabledTime": "2019-06-13T06:34:33.1934074Z"
-                                                      }
-                                               }
-                                  },
-                    "networkAcls": {
-                    "bypass": "AzureServices",
-                    "defaultAction": "Allow",
-                    "ipRules": [],
-                    "virtualNetworkRules": []
-                                   },
-                    "primaryEndpoints": {
-                    "blob": "https://staccb57dc95183.blob.core.windows.net/",
-                    "file": "https://staccb57dc95183.file.core.windows.net/",
-                    "queue": "https://staccb57dc95183.queue.core.windows.net/",
-                    "table": "https://staccb57dc95183.table.core.windows.net/"
-                                       },
-                    "primaryLocation": "eastus",
-                    "provisioningState": "Succeeded",
-                    "secondaryLocation": "westus",
-                    "statusOfPrimary": "available",
-                    "statusOfSecondary": "available",
-                    "supportsHttpsTrafficOnly": false
-                    }
-        sku:
-            description:
-                - The storage account SKU.
-            type: dict
-            returned: always
-            sample: {
-                    "name": "Standard_GRS",
-                    "tier": "Standard"
-                    }
-        tags:
-            description:
-                - Resource tags.
-            type: dict
-            returned: always
-            sample: { 'key1': 'value1' }
+            sample: bus1
         type:
             description:
                 - The resource type.
             type: str
             returned: always
-            sample: "Microsoft.Storage/storageAccounts"
+            sample: "Microsoft.ServiceBus/Namespaces"
+        properties:
+            description:
+                - The resource specific properties
+            type: dict
+            returned: always
+            sample:
+                {
+                    "provisioningState": "Succeeded",
+                    "metricId": "xxxxxxx-xxxx-...:foobar",
+                    "createdAt": "2021-09-06T10:44:58.823Z",
+                    "updatedAt": "2021-09-08T13:47:26.56Z",
+                    "serviceBusEndpoint": "https://bus1-example.servicebus.windows.net:443/",
+                    "status": "Active"
+                  }
+        tags:
+            description:
+                - Resource tags.
+            type: dict
+            returned: always
+            sample: { 'env': 'myenv' }
 
 '''
 
@@ -238,13 +214,13 @@ class AzureRMResource(AzureRMModuleBase):
     def __init__(self):
         # define user inputs into argument
         self.module_arg_spec = dict(
-            url=dict(
+            path=dict(
                 type='str'
             ),
             provider=dict(
                 type='str',
             ),
-            resource_group=dict(
+            group=dict(
                 type='str',
             ),
             resource_type=dict(
@@ -296,10 +272,10 @@ class AzureRMResource(AzureRMModuleBase):
             response=None
         )
         self.mgmt_client = None
-        self.url = None
+        self.path = None
         self.api_version = None
         self.provider = None
-        self.resource_group = None
+        self.group = None
         self.resource_type = None
         self.resource_name = None
         self.subresource_type = None
@@ -324,6 +300,7 @@ class AzureRMResource(AzureRMModuleBase):
             self.method = 'DELETE'
             self.status_code.append(204)
 
+        self.url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
         if self.url is None:
             orphan = None
             rargs = dict()
@@ -331,7 +308,7 @@ class AzureRMResource(AzureRMModuleBase):
             rargs['resource_group'] = self.definition.pop('resourceGroup')
             rargs['name'] = self.definition['name']
             if self.definition['type']:
-                (rargs['namespace'], rargs['type']) = self.definition['type'].split('/') # from e.g. `type: Microsoft.ServiceBus/Namespaces`
+                (rargs['namespace'], rargs['type']) = self.definition['type'].split('/', 1) # from e.g. `type: Microsoft.ServiceBus/Namespaces`
                 self.url = resource_id(**rargs)
             else: # legacy - TODO check if we can remove it
                 if not (self.provider is None or self.provider.lower().startswith('.microsoft')):
