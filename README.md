@@ -29,21 +29,49 @@ high-productivity workflow, described below.
 
 For a cloud engineer productivity following workflow would be desirable:
 
+Assuming you've alreade created a resource group like
+`az group create -g experimental-applicationdevelopment -l westeurope`.
 Try out something with resource specific az command like `az servicebus
-namespace create -g experimental-applicationdevelopment -n bus1 --sku
-Standard` (assumes the group `experimental-applicationdevelopment`
-already exists). The extensive documentation behind `az servicebus
+namespace create -g experimental-applicationdevelopment -n myexample-bus1 --sku
+Standard`. The extensive documentation behind `az servicebus
 --help` helps a lot. Alternatively or optionaly you can check/edit the
 resource interactively via Azure Portal.
 
 :arrow_down:
 
-Find out the resource id with `az servicebus namespace list -o yaml`
+Find out the resource id with `az servicebus namespace list -o yaml | grep myexample | grep id`
 
 :arrow_down:
 
 Now print a generic resource definition with
-`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/devinfra/providers/Microsoft.ServiceBus/namespaces/bus1`
+`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/devinfra/providers/Microsoft.ServiceBus/namespaces/myexample-bus1`
+
+```
+id: /subscriptions/xxxxx-....-xxxx/resourceGroups/experimental-applicationdevelopment/providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+identity: null
+kind: null
+location: West Europe
+managedBy: null
+name: myexample-bus1
+plan: null
+properties:
+  createdAt: '2021-09-09T19:41:47.587Z'
+  metricId: xxxx-8b05-xxxx-ad6d-6f43b47f438f:myexample-bus1
+  provisioningState: Succeeded
+  serviceBusEndpoint: https://myexample-bus1.servicebus.windows.net:443/
+  status: Active
+  updatedAt: '2021-09-09T19:42:32.827Z'
+resourceGroup: experimental-applicationdevelopment
+sku:
+  capacity: null
+  family: null
+  model: null
+  name: Standard
+  size: null
+  tier: Standard
+tags: {}
+type: Microsoft.ServiceBus/Namespaces
+```
 
 :arrow_down:
 
