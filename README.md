@@ -1,6 +1,6 @@
 # Minimalistic ansible collection for managing Azure resources
 
-There is an existing `azcollection`, which supports a lot of different types
+There is an existing `azure.azcollection`, which supports a lot of different types
 of azure resources, includes examples and documentation.
 
 Unforturnately, there are some problems with maintenance:
@@ -22,20 +22,24 @@ azcollection, without the ballast of obsolete dependencies, it supports
 *all* Azure resources with the newest API and allows for a
 high-productivity workflow, described below.
 
-**Welcome to `azbare`!**
+***Welcome to azbare!***
 
 
 ## Ideal workflow
 
 For a cloud engineer productivity following workflow would be desirable:
 
-Assuming you've alreade created a resource group like
-`az group create -g experimental-applicationdevelopment -l westeurope`.
-Try out something with resource specific az command like `az servicebus
-namespace create -g experimental-applicationdevelopment -n myexample-bus1 --sku
-Standard`. The extensive documentation behind `az servicebus
---help` helps a lot. Alternatively or optionaly you can check/edit the
-resource interactively via Azure Portal.
+Assuming you've already created a resource group like
+
+    az group create -g experimental-applicationdevelopment -l westeurope
+
+Try out something with resource specific az command like
+
+    az servicebus namespace create -g experimental-applicationdevelopment -n myexample-bus1 --sku Standard
+
+The extensive documentation behind `az servicebus --help` helps a lot.
+Alternatively or optionaly you can check/edit the resource interactively
+via Azure Portal.
 
 :arrow_down:
 
@@ -45,7 +49,7 @@ Find out the resource id with `az servicebus namespace list -o yaml | grep myexa
 
 Now print a generic resource definition. You can already filter out some
 `null` values with grep:
-`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/devinfra/providers/Microsoft.ServiceBus/namespaces/myexample-bus1 | grep -v ': null'`
+`az resource show -o yaml --ids /subscriptions/xxxxx-...-xxxx/resourceGroups/experimental-applicationdevelopment/providers/Microsoft.ServiceBus/namespaces/myexample-bus1 | grep -v ': null'`
 
 ```
 id: /subscriptions/xxxxx-....
