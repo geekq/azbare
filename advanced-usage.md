@@ -20,7 +20,7 @@ msrest.http_logger : {"keyType": "SecondaryKey", "key": "5fIlk/JTSJVc40LWASmsHAn
 
 ```
 
-Now we can use special `state: special-post` to run the same via ansible:
+Now we can use the special `state: special-post` to run the same via ansible:
 
 ```
 - name: Get the existing topic access secret keys
