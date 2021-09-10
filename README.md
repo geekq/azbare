@@ -94,3 +94,7 @@ based on the `id` value.
     pip install -r requirements-azure.txt
     ansible-galaxy collection install git+git@github.com:geekq/azbare.git --force
 
+## More
+
+For advanced usage see <./advanced-usage.md>
+

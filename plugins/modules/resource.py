@@ -259,7 +259,7 @@ class AzureRMResource(AzureRMModuleBase):
         response = None
 
         if self.state == 'special-post':
-            original = self.mgmt_client.query(url, "POST", query_parameters, None, None, [200], 0, 0)
+            original = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200], 0, 0)
             self.results['response'] = json.loads(original.text)
             return self.results
 
