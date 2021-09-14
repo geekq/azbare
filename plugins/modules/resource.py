@@ -225,6 +225,9 @@ class AzureRMResource(AzureRMModuleBase):
 
         self.mgmt_client = self.get_mgmt_svc_client(GenericRestClient,
                                                     base_url=self._cloud_environment.endpoints.resource_manager)
+#~            self._storage_client = self.get_mgmt_svc_client(StorageManagementClient,
+#~                                                            base_url=self._cloud_environment.endpoints.resource_manager,
+#~                                                            api_version='2019-06-01')
 
         url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
 
