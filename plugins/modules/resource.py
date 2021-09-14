@@ -261,6 +261,7 @@ class AzureRMResource(AzureRMModuleBase):
         if self.state == 'special-post':
             original = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200], 0, 0)
             self.results['response'] = json.loads(original.text)
+            self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
             return self.results
 
         if not self.force_update:
