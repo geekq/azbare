@@ -214,7 +214,7 @@ class AzureRMResource(AzureRMModuleBase):
         self.polling_interval = None
         self.state = None
         self.definition = None
-        super(AzureRMResource, self).__init__(self.module_arg_spec, supports_tags=False)
+        super(AzureRMResource, self).__init__(self.module_arg_spec)
 
     def exec_module(self, **kwargs):
         for key in self.module_arg_spec:
@@ -224,6 +224,7 @@ class AzureRMResource(AzureRMModuleBase):
 
         self.mgmt_client = self.get_mgmt_svc_client()
         url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
+        self.log(url)
 
         # if api_version was not specified, get latest one
         if not self.api_version:

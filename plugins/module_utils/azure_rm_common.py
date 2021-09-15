@@ -15,10 +15,6 @@ import inspect
 import traceback
 import json
 
-try:
-    from azure.graphrbac import GraphRbacManagementClient
-except Exception:
-    pass
 from os.path import expanduser
 
 from ansible.module_utils.basic import \
@@ -81,21 +77,6 @@ class SDKProfile(object):  # pylint: disable=too-few-public-methods
     def default_api_version(self):
         return self.profile[None]
 
-
-# FUTURE: this should come from the SDK or an external location.
-# For now, we have to copy from azure-cli
-AZURE_API_PROFILES = {
-    'latest': {
-        'GenericRestClient': '2020-08-01',
-        'AuthorizationManagementClient': '2018-09-01-preview',
-        'ResourceManagementClient': '2017-05-10',
-    },
-}
-
-AZURE_TAG_ARGS = dict(
-    tags=dict(type='dict'),
-    append_tags=dict(type='bool', default=True),
-)
 
 AZURE_COMMON_REQUIRED_IF = [
     ('log_mode', 'file', ['log_path'])
@@ -213,15 +194,13 @@ AZURE_MIN_RELEASE = '2.0.0'
 
 
 class AzureRMModuleBase(object):
-    def __init__(self, derived_arg_spec, bypass_checks=False, no_log=False,
+    def __init__(self, derived_arg_spec,
                  check_invalid_arguments=None, mutually_exclusive=None, required_together=None,
                  required_one_of=None, add_file_common_args=False, supports_check_mode=False,
-                 required_if=None, supports_tags=True, facts_module=False, skip_exec=False, is_ad_resource=False):
+                 required_if=None, facts_module=False, skip_exec=False, is_ad_resource=False):
 
         merged_arg_spec = dict()
         merged_arg_spec.update(AZURE_COMMON_ARGS)
-        if supports_tags:
-            merged_arg_spec.update(AZURE_TAG_ARGS)
 
         if derived_arg_spec:
             merged_arg_spec.update(derived_arg_spec)
@@ -231,13 +210,11 @@ class AzureRMModuleBase(object):
             merged_required_if += required_if
 
         self.module = AnsibleModule(argument_spec=merged_arg_spec,
-                                    bypass_checks=bypass_checks,
-                                    no_log=no_log,
                                     mutually_exclusive=mutually_exclusive,
                                     required_together=required_together,
                                     required_one_of=required_one_of,
                                     add_file_common_args=add_file_common_args,
-                                    supports_check_mode=supports_check_mode,
+                                    supports_check_mode=False,
                                     required_if=merged_required_if)
 
         if not HAS_PACKAGING_VERSION:
@@ -292,254 +269,10 @@ class AzureRMModuleBase(object):
         else:
             self.module.debug(msg)
 
-    def validate_tags(self, tags):
-        '''
-        Check if tags dictionary contains string:string pairs.
-
-        :param tags: dictionary of string:string pairs
-        :return: None
-        '''
-        if not self.facts_module:
-            if not isinstance(tags, dict):
-                self.fail("Tags must be a dictionary of string:string values.")
-            for key, value in tags.items():
-                if not isinstance(value, str):
-                    self.fail("Tags values must be strings. Found {0}:{1}".format(str(key), str(value)))
-
-    def update_tags(self, tags):
-        '''
-        Call from the module to update metadata tags. Returns tuple
-        with bool indicating if there was a change and dict of new
-        tags to assign to the object.
-
-        :param tags: metadata tags from the object
-        :return: bool, dict
-        '''
-        tags = tags or dict()
-        new_tags = copy.copy(tags) if isinstance(tags, dict) else dict()
-        param_tags = self.module.params.get('tags') if isinstance(self.module.params.get('tags'), dict) else dict()
-        append_tags = self.module.params.get('append_tags') if self.module.params.get('append_tags') is not None else True
-        changed = False
-        # check add or update
-        for key, value in param_tags.items():
-            if not new_tags.get(key) or new_tags[key] != value:
-                changed = True
-                new_tags[key] = value
-        # check remove
-        if not append_tags:
-            for key, value in tags.items():
-                if not param_tags.get(key):
-                    new_tags.pop(key)
-                    changed = True
-        return changed, new_tags
-
-    def has_tags(self, obj_tags, tag_list):
-        '''
-        Used in fact modules to compare object tags to list of parameter tags. Return true if list of parameter tags
-        exists in object tags.
-
-        :param obj_tags: dictionary of tags from an Azure object.
-        :param tag_list: list of tag keys or tag key:value pairs
-        :return: bool
-        '''
-
-        if not obj_tags and tag_list:
-            return False
-
-        if not tag_list:
-            return True
-
-        matches = 0
-        result = False
-        for tag in tag_list:
-            tag_key = tag
-            tag_value = None
-            if ':' in tag:
-                tag_key, tag_value = tag.split(':')
-            if tag_value and obj_tags.get(tag_key) == tag_value:
-                matches += 1
-            elif not tag_value and obj_tags.get(tag_key):
-                matches += 1
-        if matches == len(tag_list):
-            result = True
-        return result
-
-    def get_resource_group(self, resource_group):
-        '''
-        Fetch a resource group.
-
-        :param resource_group: name of a resource group
-        :return: resource group object
-        '''
-        try:
-            return self.rm_client.resource_groups.get(resource_group)
-        except CloudError as cloud_error:
-            self.fail("Error retrieving resource group {0} - {1}".format(resource_group, cloud_error.message))
-        except Exception as exc:
-            self.fail("Error retrieving resource group {0} - {1}".format(resource_group, str(exc)))
-
-    def parse_resource_to_dict(self, resource):
-        '''
-        Return a dict of the give resource, which contains name and resource group.
-
-        :param resource: It can be a resource name, id or a dict contains name and resource group.
-        '''
-        resource_dict = parse_resource_id(resource) if not isinstance(resource, dict) else resource
-        resource_dict['resource_group'] = resource_dict.get('resource_group', self.resource_group)
-        resource_dict['subscription_id'] = resource_dict.get('subscription_id', self.subscription_id)
-        return resource_dict
-
-    def serialize_obj(self, obj, class_name, enum_modules=None):
-        '''
-        Return a JSON representation of an Azure object.
-
-        :param obj: Azure object
-        :param class_name: Name of the object's class
-        :param enum_modules: List of module names to build enum dependencies from.
-        :return: serialized result
-        '''
-        enum_modules = [] if enum_modules is None else enum_modules
-
-        dependencies = dict()
-        if enum_modules:
-            for module_name in enum_modules:
-                mod = importlib.import_module(module_name)
-                for mod_class_name, mod_class_obj in inspect.getmembers(mod, predicate=inspect.isclass):
-                    dependencies[mod_class_name] = mod_class_obj
-            self.log("dependencies: ")
-            self.log(str(dependencies))
-        serializer = Serializer(classes=dependencies)
-        return serializer.body(obj, class_name, keep_readonly=True)
-
-    def get_poller_result(self, poller, wait=5):
-        '''
-        Consistent method of waiting on and retrieving results from Azure's long poller
-
-        :param poller Azure poller object
-        :return object resulting from the original request
-        '''
-        try:
-            delay = wait
-            while not poller.done():
-                self.log("Waiting for {0} sec".format(delay))
-                poller.wait(timeout=delay)
-            return poller.result()
-        except Exception as exc:
-            self.log(str(exc))
-            raise
-
-    def check_provisioning_state(self, azure_object, requested_state='present'):
-        '''
-        Check an Azure object's provisioning state. If something did not complete the provisioning
-        process, then we cannot operate on it.
-
-        :param azure_object An object such as a subnet, storageaccount, etc. Must have provisioning_state
-                            and name attributes.
-        :return None
-        '''
-
-        if hasattr(azure_object, 'properties') and hasattr(azure_object.properties, 'provisioning_state') and \
-           hasattr(azure_object, 'name'):
-            # resource group object fits this model
-            if isinstance(azure_object.properties.provisioning_state, Enum):
-                if azure_object.properties.provisioning_state.value != AZURE_SUCCESS_STATE and \
-                   requested_state != 'absent':
-                    self.fail("Error {0} has a provisioning state of {1}. Expecting state to be {2}.".format(
-                              azure_object.name, azure_object.properties.provisioning_state, AZURE_SUCCESS_STATE))
-                return
-            if azure_object.properties.provisioning_state != AZURE_SUCCESS_STATE and \
-               requested_state != 'absent':
-                self.fail("Error {0} has a provisioning state of {1}. Expecting state to be {2}.".format(
-                    azure_object.name, azure_object.properties.provisioning_state, AZURE_SUCCESS_STATE))
-            return
-
-        if hasattr(azure_object, 'provisioning_state') or not hasattr(azure_object, 'name'):
-            if isinstance(azure_object.provisioning_state, Enum):
-                if azure_object.provisioning_state.value != AZURE_SUCCESS_STATE and requested_state != 'absent':
-                    self.fail("Error {0} has a provisioning state of {1}. Expecting state to be {2}.".format(
-                        azure_object.name, azure_object.provisioning_state, AZURE_SUCCESS_STATE))
-                return
-            if azure_object.provisioning_state != AZURE_SUCCESS_STATE and requested_state != 'absent':
-                self.fail("Error {0} has a provisioning state of {1}. Expecting state to be {2}.".format(
-                    azure_object.name, azure_object.provisioning_state, AZURE_SUCCESS_STATE))
-
-    def get_blob_client(self, resource_group_name, storage_account_name, storage_blob_type='block'):
-        keys = dict()
-        try:
-            # Get keys from the storage account
-            self.log('Getting keys')
-            account_keys = self.storage_client.storage_accounts.list_keys(resource_group_name, storage_account_name)
-        except Exception as exc:
-            self.fail("Error getting keys for account {0} - {1}".format(storage_account_name, str(exc)))
-
-        try:
-            self.log('Create blob service')
-            if storage_blob_type == 'page':
-                return PageBlobService(endpoint_suffix=self._cloud_environment.suffixes.storage_endpoint,
-                                       account_name=storage_account_name,
-                                       account_key=account_keys.keys[0].value)
-            elif storage_blob_type == 'block':
-                return BlockBlobService(endpoint_suffix=self._cloud_environment.suffixes.storage_endpoint,
-                                        account_name=storage_account_name,
-                                        account_key=account_keys.keys[0].value)
-            else:
-                raise Exception("Invalid storage blob type defined.")
-        except Exception as exc:
-            self.fail("Error creating blob service client for storage account {0} - {1}".format(storage_account_name,
-                                                                                                str(exc)))
-
-    @staticmethod
-    def _validation_ignore_callback(session, global_config, local_config, **kwargs):
-        session.verify = False
-
-    def get_api_profile(self, client_type_name, api_profile_name):
-        profile_all_clients = AZURE_API_PROFILES.get(api_profile_name)
-
-        if not profile_all_clients:
-            raise KeyError("unknown Azure API profile: {0}".format(api_profile_name))
-
-        profile_raw = profile_all_clients.get(client_type_name, None)
-
-        if not profile_raw:
-            self.module.warn("Azure API profile {0} does not define an entry for {1}".format(api_profile_name, client_type_name))
-
-        if isinstance(profile_raw, dict):
-            if not profile_raw.get('default_api_version'):
-                raise KeyError("Azure API profile {0} does not define 'default_api_version'".format(api_profile_name))
-            return profile_raw
-
-        # wrap basic strings in a dict that just defines the default
-        return dict(default_api_version=profile_raw)
-
-    def get_graphrbac_client(self, tenant_id):
-        cred = self.azure_auth.azure_credentials
-        base_url = self.azure_auth._cloud_environment.endpoints.active_directory_graph_resource_id
-        client = GraphRbacManagementClient(cred, tenant_id, base_url)
-
-        return client
-
     def get_mgmt_svc_client(self):
         base_url = self.azure_auth._cloud_environment.endpoints.resource_manager
         client = GenericRestClient(credentials=self.azure_auth.azure_credentials, subscription_id=self.azure_auth.subscription_id, base_url=base_url)
         return client
-
-    def generate_sas_token(self, **kwags):
-        base_url = kwags.get('base_url', None)
-        expiry = kwags.get('expiry', time() + 3600)
-        key = kwags.get('key', None)
-        policy = kwags.get('policy', None)
-        url = quote_plus(base_url)
-        ttl = int(expiry)
-        sign_key = '{0}\n{1}'.format(url, ttl)
-        signature = b64encode(HMAC(b64decode(key), sign_key.encode('utf-8'), sha256).digest())
-        result = {
-            'sr': url,
-            'sig': signature,
-            'se': str(ttl),
-        }
-        if policy:
-            result['skn'] = policy
-        return 'SharedAccessSignature ' + urlencode(result)
 
     # passthru methods to AzureAuth instance for backcompat
     @property
@@ -549,12 +282,6 @@ class AzureRMModuleBase(object):
     @property
     def subscription_id(self):
         return self.azure_auth.subscription_id
-
-    @property
-    def authorization_models(self):
-        return AuthorizationManagementClient.models('2018-09-01-preview')
-
-
 
 class AzureRMAuthException(Exception):
     pass
