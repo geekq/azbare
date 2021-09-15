@@ -160,6 +160,8 @@ try:
     from msrest.authentication import Authentication
     from azure.mgmt.resource.locks import ManagementLockClient
 
+    from ansible_collections.geekq.azbare.plugins.module_utils.azure_rm_common_rest import GenericRestClient
+
 except ImportError as exc:
     Authentication = object
     HAS_AZURE_EXC = traceback.format_exc()
@@ -516,42 +518,11 @@ class AzureRMModuleBase(object):
 
         return client
 
-    def get_mgmt_svc_client(self, client_type, base_url=None, api_version=None, suppress_subscription_id=False):
-        self.log('Getting management service client {0}'.format(client_type.__name__))
+    def get_mgmt_svc_client(self):
+        client_type = GenericRestClient
 
-        client_argspec = inspect.getargspec(client_type.__init__)
-
-        if not base_url:
-            # most things are resource_manager, don't make everyone specify
-            base_url = self.azure_auth._cloud_environment.endpoints.resource_manager
-
-        # Some management clients do not take a subscription ID as parameters.
-        if suppress_subscription_id:
-            client_kwargs = dict(credentials=self.azure_auth.azure_credentials, base_url=base_url)
-        else:
-            client_kwargs = dict(credentials=self.azure_auth.azure_credentials, subscription_id=self.azure_auth.subscription_id, base_url=base_url)
-
-        api_profile_dict = {}
-
-        if self.api_profile:
-            api_profile_dict = self.get_api_profile(client_type.__name__, self.api_profile)
-
-        # unversioned clients won't accept profile; only send it if necessary
-        # clients without a version specified in the profile will use the default
-        if api_profile_dict and 'profile' in client_argspec.args:
-            client_kwargs['profile'] = api_profile_dict
-
-        # If the client doesn't accept api_version, it's unversioned.
-        # If it does, favor explicitly-specified api_version, fall back to api_profile
-        if 'api_version' in client_argspec.args:
-            profile_default_version = api_profile_dict.get('default_api_version', None)
-            if api_version or profile_default_version:
-                client_kwargs['api_version'] = api_version or profile_default_version
-                if 'profile' in client_kwargs:
-                    # remove profile; only pass API version if specified
-                    client_kwargs.pop('profile')
-
-        client = client_type(**client_kwargs)
+        base_url = self.azure_auth._cloud_environment.endpoints.resource_manager
+        client = client_type(credentials=self.azure_auth.azure_credentials, subscription_id=self.azure_auth.subscription_id, base_url=base_url)
 
         # FUTURE: remove this once everything exposes models directly (eg, containerinstance)
         try:

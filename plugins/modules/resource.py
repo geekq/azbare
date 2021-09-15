@@ -174,7 +174,6 @@ response:
 '''
 
 from ansible_collections.geekq.azbare.plugins.module_utils.azure_rm_common import AzureRMModuleBase
-from ansible_collections.geekq.azbare.plugins.module_utils.azure_rm_common_rest import GenericRestClient
 from ansible.module_utils.common.dict_transformations import dict_merge
 
 try:
@@ -223,12 +222,7 @@ class AzureRMResource(AzureRMModuleBase):
         if self.definition is None and self.state == 'present':
             self.fail("'definition' parameter is required if state=='present'")
 
-        self.mgmt_client = self.get_mgmt_svc_client(GenericRestClient,
-                                                    base_url=self._cloud_environment.endpoints.resource_manager)
-#~            self._storage_client = self.get_mgmt_svc_client(StorageManagementClient,
-#~                                                            base_url=self._cloud_environment.endpoints.resource_manager,
-#~                                                            api_version='2019-06-01')
-
+        self.mgmt_client = self.get_mgmt_svc_client()
         url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
 
         # if api_version was not specified, get latest one
