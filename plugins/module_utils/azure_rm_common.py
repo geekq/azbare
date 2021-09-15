@@ -17,13 +17,8 @@ import json
 
 from os.path import expanduser
 
-from ansible.module_utils.basic import \
-    AnsibleModule, missing_required_lib, env_fallback
+from ansible.module_utils.basic import AnsibleModule, missing_required_lib, env_fallback
 
-try:
-    from ansible.module_utils.ansible_release import __version__ as ANSIBLE_VERSION
-except Exception:
-    ANSIBLE_VERSION = 'unknown'
 from ansible.module_utils.six.moves import configparser
 import ansible.module_utils.six.moves.urllib.parse as urlparse
 
@@ -61,37 +56,6 @@ AZURE_CREDENTIAL_ENV_MAPPING = dict(
 )
 
 
-class SDKProfile(object):  # pylint: disable=too-few-public-methods
-
-    def __init__(self, default_api_version, profile=None):
-        """Constructor.
-
-        :param str default_api_version: Default API version if not overridden by a profile. Nullable.
-        :param profile: A dict operation group name to API version.
-        :type profile: dict[str, str]
-        """
-        self.profile = profile if profile is not None else {}
-        self.profile[None] = default_api_version
-
-    @property
-    def default_api_version(self):
-        return self.profile[None]
-
-
-AZURE_COMMON_REQUIRED_IF = [
-    ('log_mode', 'file', ['log_path'])
-]
-
-ANSIBLE_USER_AGENT = 'Ansible/{0}'.format(ANSIBLE_VERSION)
-CLOUDSHELL_USER_AGENT_KEY = 'AZURE_HTTP_USER_AGENT'
-VSCODEEXT_USER_AGENT_KEY = 'VSCODEEXT_USER_AGENT'
-
-CIDR_PATTERN = re.compile(r"(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1"
-                          r"[0-9]{2}|2[0-4][0-9]|25[0-5])(/([0-9]|[1-2][0-9]|3[0-2]))")
-
-AZURE_SUCCESS_STATE = "Succeeded"
-AZURE_FAILED_STATE = "Failed"
-
 HAS_AZURE = True
 HAS_AZURE_EXC = None
 HAS_AZURE_CLI_CORE = True
@@ -118,7 +82,7 @@ except ImportError:
 
 # NB: packaging issue sometimes cause msrestazure not to be installed, check it separately
 try:
-    from msrest.serialization import Serializer
+    from msrestazure import azure_cloud
 except ImportError:
     HAS_MSRESTAZURE_EXC = traceback.format_exc()
     HAS_MSRESTAZURE = False
@@ -129,16 +93,16 @@ try:
     from msrestazure.azure_exceptions import CloudError
     from msrestazure.azure_active_directory import MSIAuthentication
     from msrestazure.tools import parse_resource_id, resource_id, is_valid_resource_id
-    from msrestazure import azure_cloud
+    from msrest.serialization import Serializer
+    from msrest.service_client import ServiceClient
+    from msrest.authentication import Authentication
+
     from azure.common.credentials import ServicePrincipalCredentials, UserPassCredentials
     from azure.mgmt.resource.version import VERSION as resource_client_version
     from azure.mgmt.resource.resources import ResourceManagementClient
     from azure.mgmt.resource.subscriptions import SubscriptionClient
     from adal.authentication_context import AuthenticationContext
     from azure.mgmt.authorization import AuthorizationManagementClient
-    from msrest.service_client import ServiceClient
-    from msrestazure import AzureConfiguration
-    from msrest.authentication import Authentication
     from azure.mgmt.resource.locks import ManagementLockClient
 
     from ansible_collections.geekq.azbare.plugins.module_utils.azure_rm_common_rest import GenericRestClient
@@ -190,14 +154,8 @@ def normalize_location_name(name):
     return name.replace(' ', '').lower()
 
 
-AZURE_MIN_RELEASE = '2.0.0'
-
-
 class AzureRMModuleBase(object):
-    def __init__(self, derived_arg_spec,
-                 check_invalid_arguments=None, mutually_exclusive=None, required_together=None,
-                 required_one_of=None, add_file_common_args=False, supports_check_mode=False,
-                 required_if=None, facts_module=False, skip_exec=False, is_ad_resource=False):
+    def __init__(self, derived_arg_spec, required_if=None, facts_module=False, skip_exec=False):
 
         merged_arg_spec = dict()
         merged_arg_spec.update(AZURE_COMMON_ARGS)
@@ -205,17 +163,7 @@ class AzureRMModuleBase(object):
         if derived_arg_spec:
             merged_arg_spec.update(derived_arg_spec)
 
-        merged_required_if = list(AZURE_COMMON_REQUIRED_IF)
-        if required_if:
-            merged_required_if += required_if
-
-        self.module = AnsibleModule(argument_spec=merged_arg_spec,
-                                    mutually_exclusive=mutually_exclusive,
-                                    required_together=required_together,
-                                    required_one_of=required_one_of,
-                                    add_file_common_args=add_file_common_args,
-                                    supports_check_mode=False,
-                                    required_if=merged_required_if)
+        self.module = AnsibleModule(argument_spec=merged_arg_spec)
 
         if not HAS_PACKAGING_VERSION:
             self.fail(msg=missing_required_lib('packaging'),
@@ -226,7 +174,7 @@ class AzureRMModuleBase(object):
                       exception=HAS_MSRESTAZURE_EXC)
 
         if not HAS_AZURE:
-            self.fail(msg=missing_required_lib('ansible[azure] (azure >= {0})'.format(AZURE_MIN_RELEASE)),
+            self.fail(msg=missing_required_lib('azure-mgmt-resource or azure-mgmt-authorization'),
                       exception=HAS_AZURE_EXC)
 
         self._resource = None
@@ -237,7 +185,7 @@ class AzureRMModuleBase(object):
         self.debug = self.module.params.get('debug')
 
         # delegate auth to AzureRMAuth class (shared with all plugin types)
-        self.azure_auth = AzureRMAuth(fail_impl=self.fail, is_ad_resource=is_ad_resource, **self.module.params)
+        self.azure_auth = AzureRMAuth(fail_impl=self.fail, **self.module.params)
 
         # common parameter validation
         if self.module.params.get('tags'):
@@ -293,13 +241,7 @@ class AzureRMAuth(object):
 
     def __init__(self, auth_source=None, profile=None, subscription_id=None, client_id=None, secret=None,
                  tenant=None, ad_user=None, password=None, cloud_environment='AzureCloud', cert_validation_mode='validate',
-                 api_profile='latest', adfs_authority_url=None, fail_impl=None, is_ad_resource=False, **kwargs):
-
-        if fail_impl:
-            self._fail_impl = fail_impl
-        else:
-            self._fail_impl = self._default_fail_impl
-        self.is_ad_resource = is_ad_resource
+                 api_profile='latest', adfs_authority_url=None, **kwargs):
 
         # authenticate
         self.credentials = self._get_credentials(
@@ -404,9 +346,6 @@ class AzureRMAuth(object):
                       "be logged in using AzureCLI.")
 
     def fail(self, msg, exception=None, **kwargs):
-        self._fail_impl(msg)
-
-    def _default_fail_impl(self, msg, exception=None, **kwargs):
         raise AzureRMAuthException(msg)
 
     def _get_env(self, module_key, default=None):
@@ -450,13 +389,11 @@ class AzureRMAuth(object):
             'subscription_id': subscription_id
         }
 
-    def _get_azure_cli_credentials(self, subscription_id=None, resource=None):
-        if self.is_ad_resource:
-            resource = 'https://graph.windows.net/'
+    def _get_azure_cli_credentials(self, subscription_id=None):
         subscription_id = subscription_id or self._get_env('subscription_id')
         profile = get_cli_profile()
         credentials, subscription_id, tenant = profile.get_login_credentials(
-            subscription_id=subscription_id, resource=resource)
+            subscription_id=subscription_id)
         cloud_environment = get_cli_active_cloud()
 
         cli_credentials = {
