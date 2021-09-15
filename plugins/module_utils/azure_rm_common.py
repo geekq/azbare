@@ -257,7 +257,7 @@ class AzureRMModuleBase(object):
         self.check_mode = self.module.check_mode
         self.api_profile = self.module.params.get('api_profile')
         self.facts_module = facts_module
-        # self.debug = self.module.params.get('debug')
+        self.debug = self.module.params.get('debug')
 
         # delegate auth to AzureRMAuth class (shared with all plugin types)
         self.azure_auth = AzureRMAuth(fail_impl=self.fail, is_ad_resource=is_ad_resource, **self.module.params)
@@ -519,38 +519,9 @@ class AzureRMModuleBase(object):
         return client
 
     def get_mgmt_svc_client(self):
-        client_type = GenericRestClient
-
         base_url = self.azure_auth._cloud_environment.endpoints.resource_manager
-        client = client_type(credentials=self.azure_auth.azure_credentials, subscription_id=self.azure_auth.subscription_id, base_url=base_url)
-
-        # FUTURE: remove this once everything exposes models directly (eg, containerinstance)
-        try:
-            getattr(client, "models")
-        except AttributeError:
-            def _ansible_get_models(self, *arg, **kwarg):
-                return self._ansible_models
-
-            setattr(client, '_ansible_models', importlib.import_module(client_type.__module__).models)
-            client.models = types.MethodType(_ansible_get_models, client)
-
-        client.config = self.add_user_agent(client.config)
-
-        if self.azure_auth._cert_validation_mode == 'ignore':
-            client.config.session_configuration_callback = self._validation_ignore_callback
-
+        client = GenericRestClient(credentials=self.azure_auth.azure_credentials, subscription_id=self.azure_auth.subscription_id, base_url=base_url)
         return client
-
-    def add_user_agent(self, config):
-        # Add user agent for Ansible
-        config.add_user_agent(ANSIBLE_USER_AGENT)
-        # Add user agent when running from Cloud Shell
-        if CLOUDSHELL_USER_AGENT_KEY in os.environ:
-            config.add_user_agent(os.environ[CLOUDSHELL_USER_AGENT_KEY])
-        # Add user agent when running from VSCode extension
-        if VSCODEEXT_USER_AGENT_KEY in os.environ:
-            config.add_user_agent(os.environ[VSCODEEXT_USER_AGENT_KEY])
-        return config
 
     def generate_sas_token(self, **kwags):
         base_url = kwags.get('base_url', None)
@@ -570,18 +541,7 @@ class AzureRMModuleBase(object):
             result['skn'] = policy
         return 'SharedAccessSignature ' + urlencode(result)
 
-    def get_data_svc_client(self, **kwags):
-        url = kwags.get('base_url', None)
-        config = AzureConfiguration(base_url='https://{0}'.format(url))
-        config.credentials = AzureSASAuthentication(token=self.generate_sas_token(**kwags))
-        config = self.add_user_agent(config)
-        return ServiceClient(creds=config.credentials, config=config)
-
     # passthru methods to AzureAuth instance for backcompat
-    @property
-    def credentials(self):
-        return self.azure_auth.credentials
-
     @property
     def _cloud_environment(self):
         return self.azure_auth._cloud_environment
@@ -594,22 +554,6 @@ class AzureRMModuleBase(object):
     def authorization_models(self):
         return AuthorizationManagementClient.models('2018-09-01-preview')
 
-
-
-class AzureSASAuthentication(Authentication):
-    """Simple SAS Authentication.
-    An implementation of Authentication in
-    https://github.com/Azure/msrest-for-python/blob/0732bc90bdb290e5f58c675ffdd7dbfa9acefc93/msrest/authentication.py
-
-    :param str token: SAS token
-    """
-    def __init__(self, token):
-        self.token = token
-
-    def signed_session(self):
-        session = super(AzureSASAuthentication, self).signed_session()
-        session.headers['Authorization'] = self.token
-        return session
 
 
 class AzureRMAuthException(Exception):
@@ -652,15 +596,6 @@ class AzureRMAuth(object):
             else:
                 self.fail("Failed to get credentials. Either pass as parameters, set environment variables, "
                           "define a profile in ~/.azure/credentials, or install Azure CLI and log in (`az login`).")
-
-        # cert validation mode precedence: module-arg, credential profile, env, "validate"
-        self._cert_validation_mode = cert_validation_mode or \
-            self.credentials.get('cert_validation_mode') or \
-            self._get_env('cert_validation_mode') or \
-            'validate'
-
-        if self._cert_validation_mode not in ['validate', 'ignore']:
-            self.fail('invalid cert_validation_mode: {0}'.format(self._cert_validation_mode))
 
         # if cloud_environment specified, look up/build Cloud object
         raw_cloud_env = self.credentials.get('cloud_environment')
@@ -710,7 +645,7 @@ class AzureRMAuth(object):
                                                                  secret=self.credentials['secret'],
                                                                  tenant=self.credentials['tenant'],
                                                                  cloud_environment=self._cloud_environment,
-                                                                 verify=self._cert_validation_mode == 'validate')
+                                                                 verify=True)
 
         elif self.credentials.get('ad_user') is not None and \
                 self.credentials.get('password') is not None and \
@@ -734,7 +669,7 @@ class AzureRMAuth(object):
                                                          self.credentials['password'],
                                                          tenant=tenant,
                                                          cloud_environment=self._cloud_environment,
-                                                         verify=self._cert_validation_mode == 'validate')
+                                                         verify=True)
         else:
             self.fail("Failed to authenticate with provided credentials. Some attributes were missing. "
                       "Credentials must include client_id, secret and tenant or ad_user and password, or "
@@ -897,11 +832,14 @@ class AzureRMAuth(object):
         return AADTokenCredentials(token_response)
 
     def log(self, msg, pretty_print=False):
-        pass
         # Use only during module development
-        # if self.debug:
-        #     log_file = open('azure_rm.log', 'a')
-        #     if pretty_print:
-        #         log_file.write(json.dumps(msg, indent=4, sort_keys=True))
-        #     else:
-        #         log_file.write(msg + u'\n')
+        if True: # self.debug
+            with open('azure_rm.log', 'a') as log_file:
+                try:
+                    if pretty_print:
+                        print(json.dumps(msg, indent=4, sort_keys=True), file=log_file)
+                    else:
+                        print(msg, file=log_file)
+                except Exception as e:
+                    print('Can not log the log message', file=log_file)
+                    print(e, file=log_file)
