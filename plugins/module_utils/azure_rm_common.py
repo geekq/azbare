@@ -98,7 +98,6 @@ try:
     from msrest.authentication import Authentication
 
     from azure.common.credentials import ServicePrincipalCredentials, UserPassCredentials
-    from azure.mgmt.resource.version import VERSION as resource_client_version
     from azure.mgmt.resource.resources import ResourceManagementClient
     from azure.mgmt.resource.subscriptions import SubscriptionClient
     from adal.authentication_context import AuthenticationContext
