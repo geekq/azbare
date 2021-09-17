@@ -1,9 +1,11 @@
 - name: Run all tests for handling Azure resources
   hosts: localhost
   gather_facts: no
+  connection: local
   any_errors_fatal: true
   tasks:
   - name: Run tests on Azure Service Bus resources, including advanced POST operations
     import_tasks: tasks/servicebus-with-key-renewal.yaml
     vars:
       resource_group: experimental-applicationdevelopment
+      azure_location: Germany West Central

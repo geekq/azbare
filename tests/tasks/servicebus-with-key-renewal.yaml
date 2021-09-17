@@ -1,9 +1,19 @@
+- name: Prepare the resource group
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: ""
+    definition:
+      # There is an inconsistency in Azure API: resource_groups expects a differently
+      # formatted location - all downcase, without spaces.
+      # Format it to be able to check for existing group with desired definition.
+      location: "{{ azure_location | lower | replace(' ', '') }}"
+
 - name: Define a service bus namespace
   geekq.azbare.resource:
     group: "{{ resource_group }}"
     path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
     definition:
-      location: Germany West Central
+      location: "{{ azure_location }}"
       sku:
         name: Basic
         tier: Basic
