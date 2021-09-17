@@ -1,0 +1,11 @@
+- name: Define a service bus namespace
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+    definition:
+      location: Germany West Central
+      sku:
+        name: Basic
+        tier: Basic
+      tags:
+        env: myenv
