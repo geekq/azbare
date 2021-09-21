@@ -96,5 +96,8 @@ based on the `id` value.
 
 ## More
 
-See also [advanced usage](advanced-usage.md)
+See also:
+
+* [advanced usage](docs/advanced-usage.md)
+* [development](docs/development.md)
 
