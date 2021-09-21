@@ -9,3 +9,7 @@
     vars:
       resource_group: experimental-applicationdevelopment
       azure_location: Germany West Central
+  - name: Check (read) existing resources, similar to resource_info
+    import_tasks: tasks/info.yaml
+    vars:
+      resource_group: experimental-applicationdevelopment

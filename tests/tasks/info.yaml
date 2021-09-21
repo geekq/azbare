@@ -1,0 +1,17 @@
+- name: Check the resource group definition
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: ""
+    state: check
+
+- name: Check the existing service bus
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+    state: check
+
+- name: Check a not existing resource
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1foo-bar
+    state: check

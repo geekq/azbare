@@ -72,6 +72,7 @@ options:
         choices:
             - absent
             - present
+            - check
             - special-post
 
 # extends_documentation_fragment:
@@ -198,7 +199,7 @@ class AzureRMResource(AzureRMModuleBase):
             force_update=dict(type='bool', default=False),
             polling_timeout=dict(type='int', default=0),
             polling_interval=dict(type='int', default=10),
-            state=dict(type='str', default='present', choices=['present', 'absent', 'special-post'])
+            state=dict(type='str', default='present', choices=['present', 'absent', 'check', 'special-post'])
         )
         # store the results of the module operation
         self.results = dict(
@@ -262,6 +263,12 @@ class AzureRMResource(AzureRMModuleBase):
             self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
             return self.results
 
+        if self.state == 'check':
+            original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
+            if original.status_code == 200:
+                self.results['response'] = json.loads(original.text)
+            return self.results
+
         if not self.force_update:
             original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
 
@@ -277,13 +284,13 @@ class AzureRMResource(AzureRMModuleBase):
                 except Exception:
                     pass
 
-        method = 'PUT'
-        status_code = [200, 201, 202]
-        if self.state == 'absent':
-            method = 'DELETE'
-            status_code.append(204)
-
         if needs_update:
+            method = 'PUT'
+            status_code = [200, 201, 202]
+            if self.state == 'absent':
+                method = 'DELETE'
+                status_code.append(204)
+
             updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
                                               status_code, self.polling_timeout, self.polling_interval)
             if self.state == 'present':

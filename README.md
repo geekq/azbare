@@ -35,7 +35,8 @@ Assuming you've already created a resource group like
 
 Try out something with resource specific az command like
 
-    az servicebus namespace create -g experimental-applicationdevelopment -n myexample-bus1 --sku Standard
+    az servicebus namespace create -g experimental-applicationdevelopment \
+      -n myexample-bus1 --sku Standard
 
 The extensive documentation behind `az servicebus --help` helps a lot.
 Alternatively or optionaly you can check/edit the resource interactively
@@ -88,6 +89,38 @@ based on the `id` value.
             tier: Premium
           tags:
             env: myenv
+
+## Resource info
+
+You can also use azbare just for getting information about existing
+azure resources, as a replacement for `azure_rm_resource_info`:
+
+
+    - name: Check the existing service bus
+      geekq.azbare.resource:
+        group: experimental-applicationdevelopment
+        path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+        state: check
+
+returns
+
+```
+ok: [localhost] => changed=false 
+  response:
+    id: /subscriptions/xxxxx-....
+    location: Germany West Central
+    name: myexample-bus1
+    properties:
+      createdAt: '2021-09-17T11:51:53.507Z'
+      metricId: xxxx:myexample-bus1
+      provisioningState: Succeeded
+   ...
+```
+
+For module documentation, see [resource.py](plugins/modules/resource.py#L22).
+
+For more examples see [tests](tests/) folder.
+
 
 ## Installation
 
