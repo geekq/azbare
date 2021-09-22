@@ -9,6 +9,10 @@
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
+from copy import deepcopy
+import json
+import yaml
+import difflib
 
 DOCUMENTATION = '''
 ---
@@ -181,11 +185,70 @@ try:
     from msrestazure.azure_exceptions import CloudError
     from msrest.service_client import ServiceClient
     from msrestazure.tools import resource_id, is_valid_resource_id
-    import json
 
 except ImportError:
     # This is handled in azure_rm_common
     pass
+
+def diff_dict_lists(a, b):
+    """Return difference between two dicts of lists of dicts of dicts of list
+    in a text diff format. Usable for e.g. debugging."""
+    return '\n'.join(difflib.unified_diff(
+        yaml.dump(a).splitlines(),
+        yaml.dump(b).splitlines()))
+
+def dict_list_merge(a, b):
+    """Recursively merges dicts of lists of dicts of dicts of lists.
+    Returns a new merged structure.
+    keys in dicts of b overwrite the values in a.
+    Lists are matched by index, s. doctest examples below.
+    
+    Test merging lists inside dict. Here we have a list of AKS agentPoolProfils,
+    updating a single attribute (minCount) of a list item.
+    >>> existing_resource = yaml.load('''
+    ... identity:
+    ...   type: SystemAssigned
+    ... location: westeurope
+    ... properties:
+    ...   agentPoolProfiles:
+    ...   - count: 3
+    ...     enableAutoScaling: true
+    ...     minCount: 3
+    ...    ''', Loader=yaml.SafeLoader)
+    >>> new_definition = yaml.load('''
+    ... location: westeurope
+    ... properties:
+    ...   agentPoolProfiles:
+    ...   - count: 3
+    ...     enableAutoScaling: true
+    ...     minCount: 5
+    ...    ''', Loader=yaml.SafeLoader)
+    >>> merged = dict_list_merge(existing_resource, new_definition)
+    >>> merged['properties']['agentPoolProfiles'][0]['minCount']
+    5
+    >>> print(diff_dict_lists(existing_resource, merged))
+    ---...
+    -    minCount: 3
+    +    minCount: 5...
+    """
+    if isinstance(b, dict):
+        result = deepcopy(a)
+        for k, v in b.items():
+            if k in result and (isinstance(result[k], dict) or isinstance(result[k], list)):
+                result[k] = dict_list_merge(result[k], v)
+            else:
+                result[k] = deepcopy(v)
+        return result
+    elif isinstance(b, list):
+        merged = deepcopy(a)
+        # merge the first elements of both lists
+        for i in range(len(merged)):
+            if i < len(b): # element with index is present in both lists
+                merged[i] = dict_list_merge(merged[i], b[i])
+        # append further elements from b list, if b is longer
+        return merged + b[len(merged):]
+    else:
+        return b
 
 
 class AzureRMResource(AzureRMModuleBase):
@@ -279,9 +342,17 @@ class AzureRMResource(AzureRMModuleBase):
                 try:
                     response = json.loads(original.text)
                     # self.results['previous_definition'] = response # for debugging the `force_update: false` optimization
-                    needs_update = (dict_merge(response, self.definition) != response)
-                    # self.results['needs_update'] = needs_update # for debugging the `force_update: false` optimization
-                except Exception:
+                    merged = dict_list_merge(response, self.definition)
+                    needs_update = (merged != response)
+                    self.results['needs_update'] = needs_update # for debugging the `force_update: false` optimization
+                    self.results['diff-from-def'] = '\n'.join(difflib.unified_diff(
+                        yaml.dump(self.definition).splitlines(),
+                        yaml.dump(response).splitlines()))
+                    self.results['diff-merged'] = '\n'.join(difflib.unified_diff(
+                        yaml.dump(response).splitlines(),
+                        yaml.dump(merged).splitlines()))
+
+                except BufferError: # Exception:
                     pass
 
         if needs_update:
