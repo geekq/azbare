@@ -57,6 +57,16 @@ options:
             - By setting this parameter to 'yes' you can force executing I(method=PUT).
         default: no
         type: bool
+    details:
+        description:
+            - Show more verbose information when processing resources.
+            - Level 'info' - show diff of the current vs. proposed merged resource definition.
+            - Level 'debug' - show more intermediate resource definition processing results.
+        default: nothing
+        choices:
+            - nothing
+            - info
+            - debug
     polling_timeout:
         description:
             - How long to wait until the resource is updated/created. Default: forever.
@@ -202,7 +212,7 @@ def dict_list_merge(a, b):
     Returns a new merged structure.
     keys in dicts of b overwrite the values in a.
     Lists are matched by index, s. doctest examples below.
-    
+
     Test merging lists inside dict. Here we have a list of AKS agentPoolProfils,
     updating a single attribute (minCount) of a list item.
     >>> existing_resource = yaml.load('''
@@ -259,10 +269,11 @@ class AzureRMResource(AzureRMModuleBase):
             path=dict(type='str', required=True),
             group=dict(type='str', required=True),
             definition=dict(type='raw'),
+            details=dict(type='str', default='nothing', choices=['nothing', 'info', 'debug']),
             force_update=dict(type='bool', default=False),
             polling_timeout=dict(type='int', default=0),
             polling_interval=dict(type='int', default=10),
-            state=dict(type='str', default='present', choices=['present', 'absent', 'check', 'special-post'])
+            state=dict(type='str', default='present', choices=['present', 'absent', 'check', 'special-post']),
         )
         # store the results of the module operation
         self.results = dict(
@@ -273,11 +284,12 @@ class AzureRMResource(AzureRMModuleBase):
         self.path = None
         self.api_version = None
         self.group = None
+        self.definition = None
+        self.details = None
         self.force_update = False
         self.polling_timeout = None
         self.polling_interval = None
         self.state = None
-        self.definition = None
         super(AzureRMResource, self).__init__(self.module_arg_spec)
 
     def exec_module(self, **kwargs):
@@ -339,31 +351,28 @@ class AzureRMResource(AzureRMModuleBase):
                 if self.state == 'absent':
                     needs_update = False
             else:
-                try:
-                    response = json.loads(original.text)
-                    # self.results['previous_definition'] = response # for debugging the `force_update: false` optimization
-                    merged = dict_list_merge(response, self.definition)
-                    needs_update = (merged != response)
-                    self.results['needs_update'] = needs_update # for debugging the `force_update: false` optimization
-                    self.results['diff-from-def'] = '\n'.join(difflib.unified_diff(
-                        yaml.dump(self.definition).splitlines(),
-                        yaml.dump(response).splitlines()))
-                    self.results['diff-merged'] = '\n'.join(difflib.unified_diff(
-                        yaml.dump(response).splitlines(),
-                        yaml.dump(merged).splitlines()))
-
-                except BufferError: # Exception:
-                    pass
+                response = json.loads(original.text)
+                merged = dict_list_merge(response, self.definition)
+                needs_update = (merged != response)
+                if self.details in ['debug']:
+                    self.results['previous_definition'] = response
+                    self.results['diff-from-def'] = diff_dict_lists(self.definition, response)
+                if self.details in ['info', 'debug']:
+                    self.results['needs_update'] = needs_update
+                    self.results['diff-merged'] = diff_dict_lists(response, merged)
 
         if needs_update:
             method = 'PUT'
-            status_code = [200, 201, 202]
+            status_code = [200, 201, 202, 400, 409]
             if self.state == 'absent':
                 method = 'DELETE'
                 status_code.append(204)
 
             updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
                                               status_code, self.polling_timeout, self.polling_interval)
+            if updated.status_code in [400, 409]:
+                self.results['status_code'] = updated.status_code
+                self.results['failed'] = True
             if self.state == 'present':
                 try:
                     response = json.loads(updated.text)

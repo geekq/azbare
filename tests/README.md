@@ -15,7 +15,10 @@ ansible-galaxy collection build --force
 ansible-galaxy collection install geekq-azbare-1.0.0.tar.gz --force \
   -p $VIRTUAL_ENV/lib/python3.8/site-packages/ansible_collections
 
-# Run the tests
+# Run the integration tests
 ansible-playbook tests/all-tests.playbook.yaml -vv
+
+# Running unit tests - just for testing single functions
+pytest
 ```
 
