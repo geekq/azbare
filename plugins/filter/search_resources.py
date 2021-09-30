@@ -3,7 +3,10 @@ from os import path
 
 class FilterModule(object):
     def filters(self):
-        return {'detect_role_assignment': detect_role_assignment}
+        return {
+                'detect_role_assignment': detect_role_assignment,
+                'shortname': shortname,
+                }
 
 def detect_role_assignment(assignments, principal_type, principal_id, role_id, scope_suffix):
     """Go through the list and return the first azure role assignment which matches the criteria.
@@ -23,3 +26,12 @@ def detect_role_assignment(assignments, principal_type, principal_id, role_id, s
                 and p['scope'].endswith(scope_suffix)):
             return assignment
     return None
+
+def shortname(display_name):
+    """Convert DisplayName to a short name, since different Azure APIs use
+    different formats.
+
+    >>> shortname("Japan West")
+    'japanwest'
+    """
+    return display_name.lower().replace(' ', '')
