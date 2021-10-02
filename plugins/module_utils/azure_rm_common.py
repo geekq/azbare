@@ -154,7 +154,7 @@ def normalize_location_name(name):
 
 
 class AzureRMModuleBase(object):
-    def __init__(self, derived_arg_spec, required_if=None, facts_module=False, skip_exec=False):
+    def __init__(self, derived_arg_spec, required_if=None, facts_module=False, supports_check_mode=False, skip_exec=False):
 
         merged_arg_spec = dict()
         merged_arg_spec.update(AZURE_COMMON_ARGS)
@@ -162,7 +162,7 @@ class AzureRMModuleBase(object):
         if derived_arg_spec:
             merged_arg_spec.update(derived_arg_spec)
 
-        self.module = AnsibleModule(argument_spec=merged_arg_spec)
+        self.module = AnsibleModule(argument_spec=merged_arg_spec, supports_check_mode=supports_check_mode)
 
         if not HAS_PACKAGING_VERSION:
             self.fail(msg=missing_required_lib('packaging'),

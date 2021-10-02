@@ -290,7 +290,7 @@ class AzureRMResource(AzureRMModuleBase):
         self.polling_timeout = None
         self.polling_interval = None
         self.state = None
-        super(AzureRMResource, self).__init__(self.module_arg_spec)
+        super(AzureRMResource, self).__init__(self.module_arg_spec, supports_check_mode=True)
 
     def exec_module(self, **kwargs):
         for key in self.module_arg_spec:
@@ -338,7 +338,7 @@ class AzureRMResource(AzureRMModuleBase):
             self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
             return self.results
 
-        if self.state == 'check':
+        if self.state == 'check' or self.check_mode :
             original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
             if original.status_code == 200:
                 self.results['response'] = json.loads(original.text)
