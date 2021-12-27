@@ -1,0 +1,129 @@
+- name: Naming conventions; k8s cluster definition
+  set_fact:
+    azure_aks_name: azbare-tst
+    cluster_def:
+      identity:
+        type: SystemAssigned
+      location: westeurope
+      properties:
+        agentPoolProfiles:
+        - name: systempool
+          count: 1
+          mode: System
+          type: VirtualMachineScaleSets
+          vmSize: Standard_DS2_v2
+        dnsPrefix: tst
+        enableRBAC: true
+        kubernetesVersion: 1.21.2
+        networkProfile:
+          loadBalancerSku: Standard
+        # Unfortunately Azure requires a separate group for AKS cluster nodes.
+        # At least assign a readable, properly sorted name instead of default MC_...
+        nodeResourceGroup: "experimental-tst-k8s-nodes"
+        servicePrincipalProfile:
+          clientId: msi
+        networkProfile:
+          networkPlugin: azure
+          networkPolicy: calico
+          loadBalancerSku: Standard
+          loadBalancerProfile:
+            managedOutboundIPs:
+              count: 1
+          serviceCidr: "10.0.0.0/16"
+          dnsServiceIP: "10.0.0.10"
+          dockerBridgeCidr: "172.17.0.1/16"
+          outboundType: loadBalancer
+      sku:
+        name: Basic
+        tier: Free
+
+- name: Create a kubernetes cluster and wait until ready
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}
+    state: present
+    force_update: true
+    definition: "{{ cluster_def }}"
+  register: cluster
+
+- debug: var=cluster
+
+- name: Apply the kubernetes cluster definition again, would fail if previous operation is still ongoing
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}
+    state: present
+    force_update: true
+    definition: "{{ cluster_def }}"
+  register: cluster
+
+- debug: var=cluster
+- meta: end_play
+
+- name: Stop the cluster
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}/stop
+    state: special-post
+  register: stopped_cluster
+
+- debug: var=stopped_cluster
+
+- name: Check the new cluster state
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}
+    state: check
+  register: cluster
+
+- assert:
+    that: (cluster.response.properties.powerState.code == 'Stopped')
+
+- meta: end_play
+
+- name: Start the k8s cluster if currently stopped
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}/start
+    state: special-post
+  failed_when: false # HACK TODO handle 202 in azbare
+  when: (cluster.response.properties.powerState.code == 'Stopped')
+
+- name: Wait until AKS is up and running
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}
+    state: check
+  register: cluster
+  # stop on failure; on ok - retry until cluster provisioning is fully finished
+  until: (cluster is failed) or (cluster.response.properties.provisioningState == 'Succeeded')
+  retries: 30
+  delay: 10
+
+
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: ""
+    state: check
+
+- name: Stop the cluster
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+    state: check
+
+- name: Start k8s cluster again and wait until ready
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1foo-bar
+    state: check
+
+# Update some cluster property
+
+# Delete cluster at the end

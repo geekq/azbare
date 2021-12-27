@@ -1,0 +1,10 @@
+- name: Run AKS k8s-related tests; handling async operations
+  hosts: localhost
+  gather_facts: no
+  connection: local
+  any_errors_fatal: true
+  tasks:
+  - name: Run k8s tasks tests
+    import_tasks: tasks/k8s.yaml
+    vars:
+      resource_group: experimental-applicationdevelopment
