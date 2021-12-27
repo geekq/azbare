@@ -153,9 +153,20 @@ def normalize_location_name(name):
     return name.replace(' ', '').lower()
 
 
+# Log more http and API auth details to a local file
+import logging
+logger = logging.getLogger('azbare')
+logger.setLevel(logging.DEBUG) # TODO make it dependent on ansible module parameter
+fh = logging.FileHandler('azbare.log')
+fh.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+
 class AzureRMModuleBase(object):
     def __init__(self, derived_arg_spec, required_if=None, facts_module=False, supports_check_mode=False, skip_exec=False):
 
+        self.logger = logging.getLogger('azbare')
         merged_arg_spec = dict()
         merged_arg_spec.update(AZURE_COMMON_ARGS)
 
@@ -242,6 +253,7 @@ class AzureRMAuth(object):
                  tenant=None, ad_user=None, password=None, cloud_environment='AzureCloud', cert_validation_mode='validate',
                  api_profile='latest', adfs_authority_url=None, **kwargs):
 
+        self.logger = logging.getLogger('azbare.auth')
         # authenticate
         self.credentials = self._get_credentials(
             auth_source=auth_source,
@@ -289,7 +301,7 @@ class AzureRMAuth(object):
 
         if self.credentials.get('subscription_id', None) is None and self.credentials.get('credentials') is None:
             self.fail("Credentials did not include a subscription_id value.")
-        self.log("setting subscription_id")
+        self.logger.debug("setting subscription_id")
         self.subscription_id = self.credentials['subscription_id']
 
         # get authentication authority
@@ -418,14 +430,14 @@ class AzureRMAuth(object):
 
     def _get_credentials(self, auth_source=None, **params):
         # Get authentication credentials.
-        self.log('Getting credentials')
+        self.logger.debug('Getting credentials')
 
         arg_credentials = dict()
         for attribute, env_variable in AZURE_CREDENTIAL_ENV_MAPPING.items():
             arg_credentials[attribute] = params.get(attribute, None)
 
         if auth_source == 'msi':
-            self.log('Retrieving credentials from MSI')
+            self.logger.debug('Retrieving credentials from MSI')
             return self._get_msi_credentials(subscription_id=params.get('subscription_id'), client_id=params.get('client_id'))
 
         if auth_source == 'cli':
@@ -433,19 +445,19 @@ class AzureRMAuth(object):
                 self.fail(msg=missing_required_lib('azure-cli', reason='for `cli` auth_source'),
                           exception=HAS_AZURE_CLI_CORE_EXC)
             try:
-                self.log('Retrieving credentials from Azure CLI profile')
+                self.logger.debug('Retrieving credentials from Azure CLI profile')
                 cli_credentials = self._get_azure_cli_credentials(subscription_id=params.get('subscription_id'))
                 return cli_credentials
             except CLIError as err:
                 self.fail("Azure CLI profile cannot be loaded - {0}".format(err))
 
         if auth_source == 'env':
-            self.log('Retrieving credentials from environment')
+            self.logger.debug('Retrieving credentials from environment')
             env_credentials = self._get_env_credentials()
             return env_credentials
 
         if auth_source == 'credential_file':
-            self.log("Retrieving credentials from credential file")
+            self.logger.debug("Retrieving credentials from credential file")
             profile = params.get('profile') or 'default'
             default_credentials = self._get_profile(profile)
             return default_credentials
@@ -453,33 +465,33 @@ class AzureRMAuth(object):
         # auto, precedence: module parameters -> environment variables -> default profile in ~/.azure/credentials -> azure cli
         # try module params
         if arg_credentials['profile'] is not None:
-            self.log('Retrieving credentials with profile parameter.')
+            self.logger.debug('Retrieving credentials with profile parameter.')
             credentials = self._get_profile(arg_credentials['profile'])
             return credentials
 
         if arg_credentials['client_id'] or arg_credentials['ad_user']:
-            self.log('Received credentials from parameters.')
+            self.logger.debug('Received credentials from parameters.')
             return arg_credentials
 
         # try environment
         env_credentials = self._get_env_credentials()
         if env_credentials:
-            self.log('Received credentials from env.')
+            self.logger.debug('Received credentials from env.')
             return env_credentials
 
         # try default profile from ~./azure/credentials
         default_credentials = self._get_profile()
         if default_credentials:
-            self.log('Retrieved default profile credentials from ~/.azure/credentials.')
+            self.logger.debug('Retrieved default profile credentials from ~/.azure/credentials.')
             return default_credentials
 
         try:
             if HAS_AZURE_CLI_CORE:
-                self.log('Retrieving credentials from AzureCLI profile')
+                self.logger.debug('Retrieving credentials from AzureCLI profile')
             cli_credentials = self._get_azure_cli_credentials(subscription_id=params.get('subscription_id'))
             return cli_credentials
         except CLIError as ce:
-            self.log('Error getting AzureCLI profile credentials - {0}'.format(ce))
+            self.logger.debug('Error getting AzureCLI profile credentials - {0}'.format(ce))
 
         return None
 

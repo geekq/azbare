@@ -293,6 +293,7 @@ class AzureRMResource(AzureRMModuleBase):
         super(AzureRMResource, self).__init__(self.module_arg_spec, supports_check_mode=True)
 
     def exec_module(self, **kwargs):
+        self.logger.debug("------------------------------------------ exec_module start --------------------------------------------")
         for key in self.module_arg_spec:
             setattr(self, key, kwargs[key])
         if self.definition is None and self.state == 'present':
@@ -300,7 +301,7 @@ class AzureRMResource(AzureRMModuleBase):
 
         self.mgmt_client = self.get_mgmt_svc_client()
         url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
-        self.log(url)
+        self.logger.debug(url)
 
         # if api_version was not specified, get latest one
         if not self.api_version:
@@ -331,6 +332,8 @@ class AzureRMResource(AzureRMModuleBase):
 
         needs_update = True
         response = None
+        self.logger.debug("query parameters prepared")
+        self.logger.debug(f"self.state: {self.state}")
 
         if self.state == 'special-post':
             original = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200], 0, 0)
@@ -338,13 +341,16 @@ class AzureRMResource(AzureRMModuleBase):
             self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
             return self.results
 
+        self.logger.debug("before checking self.check_mode")
         if self.state == 'check' or self.check_mode :
+            self.logger.debug("before the first GET")
             original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
             if original.status_code == 200:
                 self.results['response'] = json.loads(original.text)
             return self.results
 
         if not self.force_update:
+            self.logger.debug("before getting original resource state")
             original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
 
             if original.status_code == 404:
@@ -361,6 +367,7 @@ class AzureRMResource(AzureRMModuleBase):
                     self.results['needs_update'] = needs_update
                     self.results['diff-merged'] = diff_dict_lists(response, merged)
 
+        self.logger.debug("before if needs_update")
         if needs_update:
             method = 'PUT'
             status_code = [200, 201, 202, 400, 409]
@@ -370,6 +377,8 @@ class AzureRMResource(AzureRMModuleBase):
 
             updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
                                               status_code, self.polling_timeout, self.polling_interval)
+            if updated.status_code == 202:
+                self.logger.info("Got 202, TODO should initiate long polling")
             if updated.status_code in [400, 409]:
                 self.results['status_code'] = updated.status_code
                 self.results['failed'] = True

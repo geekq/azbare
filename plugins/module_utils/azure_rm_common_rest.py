@@ -3,6 +3,8 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import absolute_import, division, print_function
+import logging
+from pprint import pformat
 __metaclass__ = type
 
 
@@ -49,6 +51,7 @@ class GenericRestClientConfiguration(AzureConfiguration):
 class GenericRestClient(object):
 
     def __init__(self, credentials, subscription_id, base_url=None):
+        self.logger = logging.getLogger('azbare.rest')
         self.config = GenericRestClientConfiguration(credentials, subscription_id, base_url)
         self._client = ServiceClient(self.config.credentials, self.config)
         self.models = None
@@ -79,8 +82,14 @@ class GenericRestClient(object):
         elif method == 'MERGE':
             request = self._client.merge(url, query_parameters)
 
+        self.logger.info(f"url: {url}")
+        self.logger.info(f"request: {request}")
         response = self._client.send(request, header_parameters, body, **operation_config)
+        self.logger.info(f"response.status_code: {response.status_code}")
+        for hname, hvalue in response.headers.items():
+            self.logger.info(f"response header {hname}: {hvalue}")
 
+        polling_timeout = 600 # TODO remove the function param above; use a separate var for a switch like async/wait: true/false
         if response.status_code not in expected_status_codes:
             exp = CloudError(response)
             exp.request_id = response.headers.get('x-ms-request-id')
