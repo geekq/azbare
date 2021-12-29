@@ -1,3 +1,7 @@
+- name: Ensure the azure module version, which deals correctly with asynchronous API operations
+  assert:
+    that: lookup('geekq.azbare.version') == '1.1.0'
+
 - name: Naming conventions; k8s cluster definition
   set_fact:
     azure_aks_name: azbare-tst
@@ -44,10 +48,24 @@
     path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}
     state: present
     force_update: true
+    force_async: true # try out async operation
     definition: "{{ cluster_def }}"
   register: cluster
 
 - debug: var=cluster
+- debug: var=cluster.async_url
+
+- name: Wait explicitely for an async operation to complete
+  geekq.azbare.resource:
+    group: None
+    path: "{{ cluster.async_url }}"
+    state: check
+  register: op
+  until: (op is failed) or (op.response.status != 'InProgress')
+  retries: 8
+  delay: 15
+
+- debug: var=op
 
 - name: Apply the kubernetes cluster definition again, would fail if previous operation is still ongoing
   geekq.azbare.resource:
@@ -60,7 +78,6 @@
   register: cluster
 
 - debug: var=cluster
-- meta: end_play
 
 - name: Stop the cluster
   geekq.azbare.resource:
@@ -83,15 +100,12 @@
 - assert:
     that: (cluster.response.properties.powerState.code == 'Stopped')
 
-- meta: end_play
-
 - name: Start the k8s cluster if currently stopped
   geekq.azbare.resource:
     api_version: '2021-07-01'
     group: "{{ resource_group }}"
     path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}/start
     state: special-post
-  failed_when: false # HACK TODO handle 202 in azbare
   when: (cluster.response.properties.powerState.code == 'Stopped')
 
 - name: Wait until AKS is up and running
@@ -105,24 +119,6 @@
   until: (cluster is failed) or (cluster.response.properties.provisioningState == 'Succeeded')
   retries: 30
   delay: 10
-
-
-  geekq.azbare.resource:
-    group: "{{ resource_group }}"
-    path: ""
-    state: check
-
-- name: Stop the cluster
-  geekq.azbare.resource:
-    group: "{{ resource_group }}"
-    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
-    state: check
-
-- name: Start k8s cluster again and wait until ready
-  geekq.azbare.resource:
-    group: "{{ resource_group }}"
-    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1foo-bar
-    state: check
 
 # Update some cluster property
 

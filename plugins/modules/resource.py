@@ -41,6 +41,7 @@ options:
             - Part of the Azure RM resource url, as printed by `az resource show` command,
             - but without the subscription_id part (will be detected automatically)
             - and without resourceGroup part (please provide via separate `group` parameter).
+            - Another possibility: absolute url starting with `https:`
         required: true
     definition:
         description:
@@ -55,6 +56,13 @@ options:
             - By default an existing resource will be checked using I(method=GET) first and compared with I(definition).
             - If all parameters match, an update will be skipped for performance.
             - By setting this parameter to 'yes' you can force executing I(method=PUT).
+        default: no
+        type: bool
+    force_async:
+        description:
+            - By default this module will wait until Azure resource update or create is completely finished.
+            - You can change this behavior to implement some parallel resource creation,
+            - beware of race conditions though!
         default: no
         type: bool
     details:
@@ -194,6 +202,8 @@ from ansible.module_utils.common.dict_transformations import dict_merge
 try:
     from msrestazure.azure_exceptions import CloudError
     from msrest.service_client import ServiceClient
+    from msrest.pipeline import ClientRawResponse
+    from msrest.polling import LROPoller
     from msrestazure.tools import resource_id, is_valid_resource_id
 
 except ImportError:
@@ -271,6 +281,7 @@ class AzureRMResource(AzureRMModuleBase):
             definition=dict(type='raw'),
             details=dict(type='str', default='nothing', choices=['nothing', 'info', 'debug']),
             force_update=dict(type='bool', default=False),
+            force_async=dict(type='bool', default=False),
             polling_timeout=dict(type='int', default=0),
             polling_interval=dict(type='int', default=10),
             state=dict(type='str', default='present', choices=['present', 'absent', 'check', 'special-post']),
@@ -287,6 +298,7 @@ class AzureRMResource(AzureRMModuleBase):
         self.definition = None
         self.details = None
         self.force_update = False
+        self.force_async = False
         self.polling_timeout = None
         self.polling_interval = None
         self.state = None
@@ -300,7 +312,10 @@ class AzureRMResource(AzureRMModuleBase):
             self.fail("'definition' parameter is required if state=='present'")
 
         self.mgmt_client = self.get_mgmt_svc_client()
-        url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
+        if self.path.startswith('https:'):
+            url = self.path
+        else:
+            url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
         self.logger.debug(url)
 
         # if api_version was not specified, get latest one
@@ -336,8 +351,9 @@ class AzureRMResource(AzureRMModuleBase):
         self.logger.debug(f"self.state: {self.state}")
 
         if self.state == 'special-post':
-            original = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200], 0, 0)
-            self.results['response'] = json.loads(original.text)
+            res = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200, 202], 0, 0, force_async=self.force_async)
+
+            self.results['response'] = json.loads(res.text)
             self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
             return self.results
 
@@ -376,9 +392,9 @@ class AzureRMResource(AzureRMModuleBase):
                 status_code.append(204)
 
             updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
-                                              status_code, self.polling_timeout, self.polling_interval)
-            if updated.status_code == 202:
-                self.logger.info("Got 202, TODO should initiate long polling")
+                                              status_code, self.polling_timeout, self.polling_interval, force_async=self.force_async)
+            if hasattr(updated, "async_url"):
+                self.results['async_url'] = updated.async_url()
             if updated.status_code in [400, 409]:
                 self.results['status_code'] = updated.status_code
                 self.results['failed'] = True
@@ -395,6 +411,27 @@ class AzureRMResource(AzureRMModuleBase):
 
         return self.results
 
+def query2(url, method, api_version, not_found_is_ok=False):
+    pass
+    # TODO: move the implementation from azure_rm_common_rest.py
+    # method: GET, POST, PUT, DELETE
+    # api_version -> query_parameters
+    # header_parameters <- content: json
+    # expected_status_codes: 200, 201, 202 are always ok
+    # 204 is ok if we do not expect any data (e.g. for DELETE)
+    # 404 is sometimes ok for GET if state: absent desired
+    # from self. global vars: polling_timeout, polling_interval, force_async
+    #
+    # return query result dict:
+    #   response: azure xref:requests.Response
+    #   async_url: if force_async
+
+# api_versions = json.loads(self.mgmt_client.query(providers_url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
+# res = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200, 202], 0, 0, force_async=self.force_async)
+# original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
+# original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
+# updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
+#                                   status_code, self.polling_timeout, self.polling_interval, force_async=self.force_async)
 
 def main():
     AzureRMResource()

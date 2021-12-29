@@ -55,9 +55,11 @@ class GenericRestClient(object):
         self.config = GenericRestClientConfiguration(credentials, subscription_id, base_url)
         self._client = ServiceClient(self.config.credentials, self.config)
         self.models = None
+        # TODO move to resource.py __init__
 
-    def query(self, url, method, query_parameters, header_parameters, body, expected_status_codes, polling_timeout, polling_interval):
+    def query(self, url, method, query_parameters, header_parameters, body, expected_status_codes, polling_timeout, polling_interval, force_async=False):
         # Construct and send request
+        # TODO move to resource.py `def query()`
         operation_config = {}
 
         request = None
@@ -67,6 +69,8 @@ class GenericRestClient(object):
 
         header_parameters['x-ms-client-request-id'] = str(uuid.uuid1())
 
+        self.logger.debug(f"_client: {type(self._client)}")
+        # TODO Try to replace by .request: https://docs.python-requests.org/en/v0.6.2/api/
         if method == 'GET':
             request = self._client.get(url, query_parameters)
         elif method == 'PUT':
@@ -89,20 +93,36 @@ class GenericRestClient(object):
         for hname, hvalue in response.headers.items():
             self.logger.info(f"response header {hname}: {hvalue}")
 
-        polling_timeout = 600 # TODO remove the function param above; use a separate var for a switch like async/wait: true/false
         if response.status_code not in expected_status_codes:
             exp = CloudError(response)
             exp.request_id = response.headers.get('x-ms-request-id')
             raise exp
-        elif response.status_code == 202 and polling_timeout > 0:
-            def get_long_running_output(response):
-                return response
-            poller = LROPoller(self._client,
-                               ClientRawResponse(None, response),
-                               get_long_running_output,
-                               ARMPolling(polling_interval, **operation_config))
-            response = self.get_poller_result(poller, polling_timeout)
+        else:
+            operation_url = response.headers.get('Azure-AsyncOperation')
+            if operation_url: # Azure tells, which operations url to poll
+                # example: https://management.azure.com/subscriptions/11.......-....-....-....-........../providers/Microsoft.ContainerService/locations/westeurope/operations/....-....-....-....-....?api-version=2017-08-31
+                if force_async:
+                    self.logger.debug(f"type(response): {type(response)}")
+                    def async_url(self):
+                        return operation_url
+                    self.logger.debug("***** enrich the response in that special case with async_url method")
+                    response.async_url = async_url.__get__(response)
+                else: # poll until operation completed
+                    self.logger.info("Got response with `Azure-AsyncOperation` header, will initiate long polling")
+                    def get_long_running_output(response):
+                        return response
+                    polling_interval = 60
+                    polling_timeout = 600
+                    poller = LROPoller(self._client,
+                                       ClientRawResponse(None, response),
+                                       get_long_running_output,
+                                       ARMPolling(polling_interval, **operation_config))
+                    response = self.get_poller_result(poller, polling_timeout)
 
+            else:
+                pass # result immediately known
+
+        self.logger.debug(hasattr(response, "async_url"))
         return response
 
     def get_poller_result(self, poller, timeout):
