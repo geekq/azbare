@@ -35,6 +35,7 @@ options:
     group:
         description:
             - Name of the Azure resource group to be used.
+            - Provide an empty string for dealing with resources not bound to any group.
         required: true
     path:
         description:
@@ -315,7 +316,10 @@ class AzureRMResource(AzureRMModuleBase):
         if self.path.startswith('https:'):
             url = self.path
         else:
-            url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
+            if self.group:
+                url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
+            else: # not bound to any resource group
+                url = f"/subscriptions/{self.subscription_id}{self.path}"
         self.logger.debug(url)
 
         # if api_version was not specified, get latest one

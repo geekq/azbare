@@ -2,6 +2,14 @@
   assert:
     that: lookup('geekq.azbare.version') == '1.1.0'
 
+- name: Activate feature Pod Network Preview in Azure
+  geekq.azbare.resource:
+    api_version: '2015-12-01'
+    group: ''
+    path: /providers/Microsoft.Features/providers/Microsoft.ContainerService/features/PodSubnetPreview/register
+    state: special-post
+    definition: {}
+
 - name: Naming conventions; k8s cluster definition
   set_fact:
     azure_aks_name: azbare-tst
