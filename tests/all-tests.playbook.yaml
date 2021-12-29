@@ -4,22 +4,27 @@
   connection: local
   any_errors_fatal: true
   tasks:
+  - name: Naming convention for test resources
+    set_fact:
+      resource_group: experimental-applicationdevelopment
+      azure_location: Germany West Central
+      azure_aks_name: azbare-tst
+
+  - name: Clean all resources before starting tests
+    import_tasks: tasks/clean.yaml
+
   - name: Check the subscription id lookup
     set_fact:
       subscription_id: "{{ lookup('geekq.azbare.subscription_id') }}"
 
   - name: Run tests on Azure Service Bus resources, including advanced POST operations
     import_tasks: tasks/servicebus-with-key-renewal.yaml
-    vars:
-      resource_group: experimental-applicationdevelopment
-      azure_location: Germany West Central
 
   - name: Check (read) existing resources, similar to resource_info
     import_tasks: tasks/info.yaml
-    vars:
-      resource_group: experimental-applicationdevelopment
 
   - name: Run k8s tasks tests
     import_tasks: tasks/k8s.yaml
-    vars:
-      resource_group: experimental-applicationdevelopment
+
+  - name: Clean all resources after tests to save on hosting costs
+    import_tasks: tasks/clean.yaml

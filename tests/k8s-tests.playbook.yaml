@@ -4,7 +4,19 @@
   connection: local
   any_errors_fatal: true
   tasks:
+  - name: Naming convention for test resources
+    set_fact:
+      resource_group: experimental-applicationdevelopment
+      azure_location: Germany West Central
+      azure_aks_name: azbare-tst
+
+  - name: Clean all resources before starting tests
+    import_tasks: tasks/clean.yaml
+
   - name: Run k8s tasks tests
     import_tasks: tasks/k8s.yaml
     vars:
       resource_group: experimental-applicationdevelopment
+
+  - name: Clean all resources after tests to save on hosting costs
+    import_tasks: tasks/clean.yaml

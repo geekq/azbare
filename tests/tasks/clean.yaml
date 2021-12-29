@@ -1,0 +1,7 @@
+- name: Ensure there is no kubernetes cluster
+  geekq.azbare.resource:
+    api_version: '2021-07-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ContainerService/managedClusters/{{ azure_aks_name }}
+    state: absent
+  register: cluster

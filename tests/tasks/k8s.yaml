@@ -12,7 +12,6 @@
 
 - name: Naming conventions; k8s cluster definition
   set_fact:
-    azure_aks_name: azbare-tst
     cluster_def:
       identity:
         type: SystemAssigned
@@ -49,7 +48,7 @@
         name: Basic
         tier: Free
 
-- name: Create a kubernetes cluster and wait until ready
+- name: Create a kubernetes cluster
   geekq.azbare.resource:
     api_version: '2021-07-01'
     group: "{{ resource_group }}"
@@ -70,8 +69,8 @@
     state: check
   register: op
   until: (op is failed) or (op.response.status != 'InProgress')
-  retries: 8
-  delay: 15
+  retries: 20
+  delay: 20
 
 - debug: var=op
 
