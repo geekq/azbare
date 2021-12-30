@@ -1,3 +1,7 @@
+- name: Check the subscription id lookup
+  set_fact:
+    subscription_id: "{{ lookup('geekq.azbare.subscription_id') }}"
+
 - name: Check the resource group definition
   geekq.azbare.resource:
     group: "{{ resource_group }}"

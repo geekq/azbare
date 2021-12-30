@@ -1,4 +1,4 @@
-- name: Run AKS k8s-related tests; handling async operations
+- name: Run all tests for handling Azure resources
   hosts: localhost
   gather_facts: no
   connection: local
@@ -13,7 +13,11 @@
   - name: Clean resources, run tests, clean again
     include_tasks: "{{ item }}"
     loop:
-      - tasks/k8s-clean.yaml
-      - tasks/k8s.yaml
-      - tasks/k8s-clean.yaml
+      - tasks/servicebus-with-key-renewal.yaml
+      - tasks/info.yaml
 
+  - debug:
+      msg:
+        - Beware, some resources remain running and cause hosting costs.
+        - Use a different playbook to remove them.
+        - Or remove the resource group {{ resource_group }} alltogether.

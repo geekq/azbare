@@ -104,8 +104,6 @@ try:
     from azure.mgmt.authorization import AuthorizationManagementClient
     from azure.mgmt.resource.locks import ManagementLockClient
 
-    from ansible_collections.geekq.azbare.plugins.module_utils.azure_rm_common_rest import GenericRestClient
-
 except ImportError as exc:
     Authentication = object
     HAS_AZURE_EXC = traceback.format_exc()
@@ -159,7 +157,7 @@ logger = logging.getLogger('azbare')
 logger.setLevel(logging.DEBUG) # TODO make it dependent on ansible module parameter
 fh = logging.FileHandler('azbare.log')
 fh.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)-11s - %(levelname)-5s - %(message)s')
 fh.setFormatter(formatter)
 logger.addHandler(fh)
 
@@ -226,11 +224,6 @@ class AzureRMModuleBase(object):
             self.module.debug(json.dumps(msg, indent=4, sort_keys=True))
         else:
             self.module.debug(msg)
-
-    def get_mgmt_svc_client(self):
-        base_url = self.azure_auth._cloud_environment.endpoints.resource_manager
-        client = GenericRestClient(credentials=self.azure_auth.azure_credentials, subscription_id=self.azure_auth.subscription_id, base_url=base_url)
-        return client
 
     # passthru methods to AzureAuth instance for backcompat
     @property

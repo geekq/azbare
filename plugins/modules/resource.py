@@ -11,6 +11,7 @@ __metaclass__ = type
 
 from copy import deepcopy
 import json
+import uuid
 import yaml
 import difflib
 
@@ -202,6 +203,8 @@ from ansible.module_utils.common.dict_transformations import dict_merge
 
 try:
     from msrestazure.azure_exceptions import CloudError
+    from msrestazure.azure_configuration import AzureConfiguration
+    from msrestazure.polling.arm_polling import ARMPolling
     from msrest.service_client import ServiceClient
     from msrest.pipeline import ClientRawResponse
     from msrest.polling import LROPoller
@@ -210,6 +213,26 @@ try:
 except ImportError:
     # This is handled in azure_rm_common
     pass
+
+try:
+    from ansible.module_utils.ansible_release import __version__ as ANSIBLE_VERSION
+except Exception:
+    ANSIBLE_VERSION = 'unknown'
+ANSIBLE_USER_AGENT = 'Ansible/{0}'.format(ANSIBLE_VERSION)
+
+class GenericRestClientConfiguration(AzureConfiguration):
+    def __init__(self, credentials, subscription_id, base_url=None):
+        if credentials is None:
+            raise ValueError("Parameter 'credentials' must not be None.")
+        if subscription_id is None:
+            raise ValueError("Parameter 'subscription_id' must not be None.")
+        if not base_url:
+            base_url = 'https://management.azure.com'
+
+        super(GenericRestClientConfiguration, self).__init__(base_url)
+        self.add_user_agent(ANSIBLE_USER_AGENT)
+        self.credentials = credentials
+        self.subscription_id = subscription_id
 
 def diff_dict_lists(a, b):
     """Return difference between two dicts of lists of dicts of dicts of list
@@ -283,8 +306,8 @@ class AzureRMResource(AzureRMModuleBase):
             details=dict(type='str', default='nothing', choices=['nothing', 'info', 'debug']),
             force_update=dict(type='bool', default=False),
             force_async=dict(type='bool', default=False),
-            polling_timeout=dict(type='int', default=0),
-            polling_interval=dict(type='int', default=10),
+            polling_timeout=dict(type='int', default=600),
+            polling_interval=dict(type='int', default=60),
             state=dict(type='str', default='present', choices=['present', 'absent', 'check', 'special-post']),
         )
         # store the results of the module operation
@@ -292,7 +315,6 @@ class AzureRMResource(AzureRMModuleBase):
             changed=False,
             response=None
         )
-        self.mgmt_client = None
         self.path = None
         self.api_version = None
         self.group = None
@@ -305,6 +327,97 @@ class AzureRMResource(AzureRMModuleBase):
         self.state = None
         super(AzureRMResource, self).__init__(self.module_arg_spec, supports_check_mode=True)
 
+    def get_poller_result(self, poller, timeout):
+        try:
+            poller.wait(timeout=timeout)
+            return poller.result()
+        except Exception as exc:
+            raise
+
+    def query(self, comment, url, method, body, api_version, not_found_is_ok=False):
+        # def query(self, url, method, query_parameters, header_parameters, body, expected_status_codes, polling_timeout, polling_interval, force_async=False):
+        # method: GET, POST, PUT, DELETE
+        # api_version -> query_parameters
+        # header_parameters <- content: json
+        # expected_status_codes: 200, 201, 202 are always ok
+        # 204 is ok if we do not expect any data (e.g. for DELETE)
+        # 404 is sometimes ok for GET if state: absent desired
+        # from self. global vars: polling_timeout, polling_interval, force_async
+        #
+        # return query result dict:
+        #   response: azure xref:requests.Response
+        #   async_url: if force_async
+        # Construct and send request
+
+        query_parameters = {}
+        query_parameters['api-version'] = api_version
+        header_parameters = {}
+        header_parameters['Content-Type'] = 'application/json; charset=utf-8'
+        expected_status_codes = [200, 201, 202, 204, 400, 409]
+        if not_found_is_ok:
+            expected_status_codes.append(404)
+
+        request = None
+
+        if header_parameters is None:
+            header_parameters = {}
+
+        header_parameters['x-ms-client-request-id'] = str(uuid.uuid1())
+
+        # TODO Try to replace by .request: https://docs.python-requests.org/en/v0.6.2/api/
+        if method == 'GET':
+            request = self._client.get(url, query_parameters)
+        elif method == 'PUT':
+            request = self._client.put(url, query_parameters)
+        elif method == 'POST':
+            request = self._client.post(url, query_parameters)
+        elif method == 'HEAD':
+            request = self._client.head(url, query_parameters)
+        elif method == 'PATCH':
+            request = self._client.patch(url, query_parameters)
+        elif method == 'DELETE':
+            request = self._client.delete(url, query_parameters)
+        elif method == 'MERGE':
+            request = self._client.merge(url, query_parameters)
+
+        self.logger.info(f"*** {comment} *** url:")
+        self.logger.info(f"{url}")
+        self.logger.info(f"request: {request}")
+        response = self._client.send(request, header_parameters, body)
+        self.logger.info(f"response.status_code: {response.status_code}")
+        for hname, hvalue in response.headers.items():
+            self.logger.info(f"response header {hname}: {hvalue}")
+
+        if response.status_code not in expected_status_codes:
+            exp = CloudError(response)
+            exp.request_id = response.headers.get('x-ms-request-id')
+            raise exp
+        else:
+            operation_url = response.headers.get('Azure-AsyncOperation')
+            if operation_url: # Azure tells, which operations url to poll
+                # example: https://management.azure.com/subscriptions/11.......-....-....-....-........../providers/Microsoft.ContainerService/locations/westeurope/operations/....-....-....-....-....?api-version=2017-08-31
+                if self.force_async:
+                    self.logger.debug(f"type(response): {type(response)}")
+                    def async_url(self):
+                        return operation_url
+                    self.logger.debug("***** enrich the response in that special case with async_url method")
+                    response.async_url = async_url.__get__(response)
+                else: # poll until operation completed
+                    self.logger.info("Got response with `Azure-AsyncOperation` header, will initiate long polling")
+                    def get_long_running_output(response):
+                        return response
+                    poller = LROPoller(self._client,
+                                       ClientRawResponse(None, response),
+                                       get_long_running_output,
+                                       ARMPolling(self.polling_interval))
+                    response = self.get_poller_result(poller, self.polling_timeout)
+
+            else:
+                pass # result immediately known
+
+        self.logger.debug("\n")
+        return response
+
     def exec_module(self, **kwargs):
         self.logger.debug("------------------------------------------ exec_module start --------------------------------------------")
         for key in self.module_arg_spec:
@@ -312,7 +425,10 @@ class AzureRMResource(AzureRMModuleBase):
         if self.definition is None and self.state == 'present':
             self.fail("'definition' parameter is required if state=='present'")
 
-        self.mgmt_client = self.get_mgmt_svc_client()
+        base_url = self.azure_auth._cloud_environment.endpoints.resource_manager
+        self.config = GenericRestClientConfiguration(self.azure_auth.azure_credentials, self.azure_auth.subscription_id, base_url)
+        self._client = ServiceClient(self.config.credentials, self.config)
+
         if self.path.startswith('https:'):
             url = self.path
         else:
@@ -320,7 +436,6 @@ class AzureRMResource(AzureRMModuleBase):
                 url = f"/subscriptions/{self.subscription_id}/resourceGroups/{self.group}{self.path}"
             else: # not bound to any resource group
                 url = f"/subscriptions/{self.subscription_id}{self.path}"
-        self.logger.debug(url)
 
         # if api_version was not specified, get latest one
         if not self.api_version:
@@ -330,7 +445,8 @@ class AzureRMResource(AzureRMModuleBase):
                     provider = url.split("/providers/")[1].split("/")[0]
                     resourceType = url.split(provider + "/")[1].split("/")[0]
                     providers_url = "/subscriptions/" + self.subscription_id + "/providers/" + provider
-                    api_versions = json.loads(self.mgmt_client.query(providers_url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
+                    api_versions = json.loads(self.query("List resourceTypes, apiVersions", providers_url, "GET", None, '2015-01-01').text)
+
                     for rt in api_versions['resourceTypes']:
                         if rt['resourceType'].lower() == resourceType.lower():
                             self.api_version = next(v for v in rt['apiVersions'] if 'preview' not in v)
@@ -343,35 +459,23 @@ class AzureRMResource(AzureRMModuleBase):
             except Exception as exc:
                 self.fail("Failed to obtain API version: {0}".format(str(exc)))
 
-        query_parameters = {}
-        query_parameters['api-version'] = self.api_version
-
-        header_parameters = {}
-        header_parameters['Content-Type'] = 'application/json; charset=utf-8'
-
         needs_update = True
         response = None
-        self.logger.debug("query parameters prepared")
-        self.logger.debug(f"self.state: {self.state}")
 
         if self.state == 'special-post':
-            res = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200, 202], 0, 0, force_async=self.force_async)
-
+            res = self.query("special-post POST", url, "POST", self.definition, self.api_version)
             self.results['response'] = json.loads(res.text)
             self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
             return self.results
 
-        self.logger.debug("before checking self.check_mode")
         if self.state == 'check' or self.check_mode :
-            self.logger.debug("before the first GET")
-            original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
+            original = self.query("Check state/mode - just GET", url, "GET", None, self.api_version, not_found_is_ok=True)
             if original.status_code == 200:
                 self.results['response'] = json.loads(original.text)
             return self.results
 
         if not self.force_update:
-            self.logger.debug("before getting original resource state")
-            original = self.mgmt_client.query(url, "GET", query_parameters, None, None, [200, 404], 0, 0)
+            original = self.query("Get the original resource state", url, "GET", None, self.api_version, not_found_is_ok=True)
 
             if original.status_code == 404:
                 if self.state == 'absent':
@@ -387,16 +491,9 @@ class AzureRMResource(AzureRMModuleBase):
                     self.results['needs_update'] = needs_update
                     self.results['diff-merged'] = diff_dict_lists(response, merged)
 
-        self.logger.debug("before if needs_update")
         if needs_update:
-            method = 'PUT'
-            status_code = [200, 201, 202, 400, 409]
-            if self.state == 'absent':
-                method = 'DELETE'
-                status_code.append(204)
-
-            updated = self.mgmt_client.query(url, method, query_parameters, header_parameters, self.definition,
-                                              status_code, self.polling_timeout, self.polling_interval, force_async=self.force_async)
+            method = 'DELETE' if self.state == 'absent' else 'PUT'
+            updated = self.query("Change the resource", url, method, self.definition, self.api_version)
             if hasattr(updated, "async_url"):
                 self.results['async_url'] = updated.async_url()
             if updated.status_code in [400, 409]:
@@ -415,20 +512,6 @@ class AzureRMResource(AzureRMModuleBase):
 
         return self.results
 
-def query2(url, method, api_version, not_found_is_ok=False):
-    pass
-    # TODO: move the implementation from azure_rm_common_rest.py
-    # method: GET, POST, PUT, DELETE
-    # api_version -> query_parameters
-    # header_parameters <- content: json
-    # expected_status_codes: 200, 201, 202 are always ok
-    # 204 is ok if we do not expect any data (e.g. for DELETE)
-    # 404 is sometimes ok for GET if state: absent desired
-    # from self. global vars: polling_timeout, polling_interval, force_async
-    #
-    # return query result dict:
-    #   response: azure xref:requests.Response
-    #   async_url: if force_async
 
 # api_versions = json.loads(self.mgmt_client.query(providers_url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
 # res = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200, 202], 0, 0, force_async=self.force_async)

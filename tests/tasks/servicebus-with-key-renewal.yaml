@@ -19,3 +19,16 @@
         tier: Basic
       tags:
         env: myenv
+  register: servicebus
+
+- debug: var=servicebus
+
+- name: Wait until service bus is ready
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+    state: check
+  register: servicebus
+  until: servicebus.response.properties.status == "Active"
+  retries: 30
+  delay: 20
