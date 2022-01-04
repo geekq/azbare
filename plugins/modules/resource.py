@@ -353,18 +353,12 @@ class AzureRMResource(AzureRMModuleBase):
         query_parameters['api-version'] = api_version
         header_parameters = {}
         header_parameters['Content-Type'] = 'application/json; charset=utf-8'
+        header_parameters['x-ms-client-request-id'] = str(uuid.uuid1())
         expected_status_codes = [200, 201, 202, 204, 400, 409]
         if not_found_is_ok:
             expected_status_codes.append(404)
 
         request = None
-
-        if header_parameters is None:
-            header_parameters = {}
-
-        header_parameters['x-ms-client-request-id'] = str(uuid.uuid1())
-
-        # TODO Try to replace by .request: https://docs.python-requests.org/en/v0.6.2/api/
         if method == 'GET':
             request = self._client.get(url, query_parameters)
         elif method == 'PUT':
