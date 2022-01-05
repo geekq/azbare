@@ -13,6 +13,7 @@
   - name: Clean resources, run tests, clean again
     include_tasks: "{{ item }}"
     loop:
+      - tasks/handle-409-conflict.yaml
       - tasks/servicebus-with-key-renewal.yaml
       - tasks/info.yaml
 

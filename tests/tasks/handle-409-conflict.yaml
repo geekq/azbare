@@ -1,0 +1,39 @@
+- name: Naming conventions
+  set_fact:
+    storage_account_name: storagetest1joxenkkroksm
+
+- name: Ensure the storage account does not exist yet
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}"
+    state: absent
+
+- name: Create a storage account
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}"
+    definition:
+      sku:
+        name: Standard_LRS
+        tier: Standard
+      kind: Storage
+      name: "{{ storage_account_name }}"
+      type: Microsoft.Storage/storageAccounts
+      location: "{{ azure_location }}"
+      properties:
+        allowBlobPublicAccess: false
+
+- name: Retrieve access key immediately after creating storage account - should fail with 409
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}/listKeys?api-version=2021-04-01&$expand=kerb"
+    state: special-post
+  register: storage_account_keys
+
+- debug: var=storage_account_keys
+
+- name: Delete the storage account at the end
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}"
+    state: absent

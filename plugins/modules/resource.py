@@ -85,7 +85,7 @@ options:
     polling_interval:
         description:
             - How often to check if the resource is updated/created. In seconds.
-        default: 10
+        default: 20
         type: int
     state:
         description:
@@ -307,7 +307,7 @@ class AzureRMResource(AzureRMModuleBase):
             force_update=dict(type='bool', default=False),
             force_async=dict(type='bool', default=False),
             polling_timeout=dict(type='int', default=600),
-            polling_interval=dict(type='int', default=60),
+            polling_interval=dict(type='int', default=20),
             state=dict(type='str', default='present', choices=['present', 'absent', 'check', 'special-post']),
         )
         # store the results of the module operation
@@ -388,8 +388,13 @@ class AzureRMResource(AzureRMModuleBase):
             raise exp
         else:
             operation_url = response.headers.get('Azure-AsyncOperation')
-            if operation_url: # Azure tells, which operations url to poll
-                # example: https://management.azure.com/subscriptions/11.......-....-....-....-........../providers/Microsoft.ContainerService/locations/westeurope/operations/....-....-....-....-....?api-version=2017-08-31
+            if not operation_url and response.status_code == 202:
+                # Some azure APIs return 202 Accepted with Location header containing the async operations
+                # url and Retry-After header instead of their usual Azure-AsyncOperation header
+                operation_url = response.headers.get('Location')
+            if operation_url: # if Azure tells, which operations url to poll
+                # example: https://management.azure.com/subscriptions/11.......-....-......./providers \
+                # .../Microsoft.ContainerService/locations/westeurope/operations/....-....?api-version=2017-08-31
                 if self.force_async:
                     self.logger.debug(f"type(response): {type(response)}")
                     def async_url(self):
@@ -397,7 +402,7 @@ class AzureRMResource(AzureRMModuleBase):
                     self.logger.debug("***** enrich the response in that special case with async_url method")
                     response.async_url = async_url.__get__(response)
                 else: # poll until operation completed
-                    self.logger.info("Got response with `Azure-AsyncOperation` header, will initiate long polling")
+                    self.logger.info("Got response with headers for an async operation, will initiate long polling")
                     def get_long_running_output(response):
                         return response
                     poller = LROPoller(self._client,
@@ -457,10 +462,9 @@ class AzureRMResource(AzureRMModuleBase):
         response = None
 
         if self.state == 'special-post':
-            res = self.query("special-post POST", url, "POST", self.definition, self.api_version)
-            self.results['response'] = json.loads(res.text)
-            self.results['changed'] = not self.definition is None # assuming a POST will change something unless with empty body
-            return self.results
+            query_res = self.query("special-post POST", url, "POST", self.definition, self.api_version)
+            changed = not self.definition is None # assuming a POST will change something unless with empty body
+            return self.handle_async_and_json(changed, query_res)
 
         if self.state == 'check' or self.check_mode :
             original = self.query("Check state/mode - just GET", url, "GET", None, self.api_version, not_found_is_ok=True)
@@ -487,25 +491,30 @@ class AzureRMResource(AzureRMModuleBase):
 
         if needs_update:
             method = 'DELETE' if self.state == 'absent' else 'PUT'
-            updated = self.query("Change the resource", url, method, self.definition, self.api_version)
-            if hasattr(updated, "async_url"):
-                self.results['async_url'] = updated.async_url()
-            if updated.status_code in [400, 409]:
-                self.results['status_code'] = updated.status_code
-                self.results['failed'] = True
-            if self.state == 'present':
-                try:
-                    response = json.loads(updated.text)
-                except Exception:
-                    response = updated.text
-            else:
-                response = None
+            query_res = self.query("Change the resource", url, method, self.definition, self.api_version)
+            return self.handle_async_and_json(True, query_res)
+        else: # just GET
+            self.results['response'] = response
+            self.results['changed'] = False
+            return self.results
 
+    def handle_async_and_json(self, changed, query_result):
+        "After a POST, DELETE, PUT"
+        if hasattr(query_result, "async_url"):
+            self.results['async_url'] = query_result.async_url()
+        if query_result.status_code in [400, 409]:
+            self.results['status_code'] = query_result.status_code
+            self.results['failed'] = True
+        if len(query_result.text) > 0:
+            try:
+                response = json.loads(query_result.text)
+            except Exception:
+                response = query_result.text
+        else:
+            response = None
         self.results['response'] = response
-        self.results['changed'] = needs_update
-
+        self.results['changed'] = changed
         return self.results
-
 
 # api_versions = json.loads(self.mgmt_client.query(providers_url, "GET", {'api-version': '2015-01-01'}, None, None, [200], 0, 0).text)
 # res = self.mgmt_client.query(url, "POST", query_parameters, header_parameters, self.definition, [200, 202], 0, 0, force_async=self.force_async)
