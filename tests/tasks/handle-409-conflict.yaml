@@ -1,39 +1,66 @@
 - name: Naming conventions
   set_fact:
-    storage_account_name: storagetest1joxenkkroksm
+    storage_account_name1: storagetest1{{ lookup('password', '/dev/null chars=ascii_lowercase length=10') }}
+    storage_account_name2: storagetest2{{ lookup('password', '/dev/null chars=ascii_lowercase length=10') }}
 
 - name: Ensure the storage account does not exist yet
   geekq.azbare.resource:
     group: "{{ resource_group }}"
-    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name1 }}"
     state: absent
 
-- name: Create a storage account
+- name: Create a storage account and return immediately - force_async true
   geekq.azbare.resource:
     group: "{{ resource_group }}"
-    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name1 }}"
+    force_async: true
     definition:
       sku:
         name: Standard_LRS
         tier: Standard
       kind: Storage
-      name: "{{ storage_account_name }}"
+      name: "{{ storage_account_name1 }}"
       type: Microsoft.Storage/storageAccounts
       location: "{{ azure_location }}"
       properties:
         allowBlobPublicAccess: false
 
-- name: Retrieve access key immediately after creating storage account - should fail with 409
+- name: Retrieve access key immediately after creating storage account
   geekq.azbare.resource:
     group: "{{ resource_group }}"
-    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}/listKeys?api-version=2021-04-01&$expand=kerb"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name1 }}/listKeys?api-version=2021-04-01&$expand=kerb"
     state: special-post
+  ignore_errors: true
   register: storage_account_keys
 
 - debug: var=storage_account_keys
 
+- name: Should fail with 409
+  assert:
+    that:
+      # - storage_account_keys is failed
+      - storage_account_keys.response.error.code == 'StorageAccountIsNotProvisioned'
+
+- name: Create a storage account waiting for completion (synchronous)
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name2 }}"
+    definition:
+      sku:
+        name: Standard_LRS
+        tier: Standard
+      kind: Storage
+      name: "{{ storage_account_name2 }}"
+      type: Microsoft.Storage/storageAccounts
+      location: "{{ azure_location }}"
+      properties:
+        allowBlobPublicAccess: false
+
 - name: Delete the storage account at the end
   geekq.azbare.resource:
     group: "{{ resource_group }}"
-    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name }}"
+    path: "/providers/Microsoft.Storage/storageAccounts/{{ item }}"
     state: absent
+  loop:
+    - storage_account_name1
+    - storage_account_name2

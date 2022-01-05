@@ -11,9 +11,11 @@
       azure_aks_name: azbare-tst
 
   - name: Clean resources, run tests, clean again
-    include_tasks: "{{ item }}"
+    include_tasks: "{{ tasklist }}"
     loop:
       - tasks/k8s-clean.yaml
       - tasks/k8s.yaml
       - tasks/k8s-clean.yaml
+    loop_control:
+      loop_var: tasklist
 

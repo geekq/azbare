@@ -11,11 +11,13 @@
       azure_aks_name: azbare-tst
 
   - name: Clean resources, run tests, clean again
-    include_tasks: "{{ item }}"
+    include_tasks: "{{ tasklist }}"
     loop:
       - tasks/handle-409-conflict.yaml
       - tasks/servicebus-with-key-renewal.yaml
       - tasks/info.yaml
+    loop_control:
+      loop_var: tasklist
 
   - debug:
       msg:
