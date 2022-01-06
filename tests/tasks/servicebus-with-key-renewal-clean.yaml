@@ -3,6 +3,7 @@
     group: "{{ resource_group }}"
     path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
     state: absent
+    api_version: '2017-04-01'
   register: deleting_bus
 
 - debug: var=deleting_bus

@@ -3,11 +3,20 @@
     storage_account_name1: storagetest1{{ lookup('password', '/dev/null chars=ascii_lowercase length=10') }}
     storage_account_name2: storagetest2{{ lookup('password', '/dev/null chars=ascii_lowercase length=10') }}
 
-- name: Ensure the storage account does not exist yet
+- name: Post to some random invalid url
   geekq.azbare.resource:
     group: "{{ resource_group }}"
-    path: "/providers/Microsoft.Storage/storageAccounts/{{ storage_account_name1 }}"
-    state: absent
+    path: "/providers/Microsoft.Storage/storrrrageAccounts/{{ storage_account_name1 }}/listKeys?$expand=kerb"
+    state: special-post
+    api_version: '2021-04-01'
+  ignore_errors: true
+  register: some_invalid_resource
+
+- name: Previous command should fail with 404 and not show stack trace
+  assert:
+    that:
+      - some_invalid_resource is failed
+      - some_invalid_resource.response.error.code == 'InvalidResourceType'
 
 - name: Create a storage account and return immediately - force_async true
   geekq.azbare.resource:
@@ -38,7 +47,7 @@
 - name: Should fail with 409
   assert:
     that:
-      # - storage_account_keys is failed
+      - storage_account_keys is failed
       - storage_account_keys.response.error.code == 'StorageAccountIsNotProvisioned'
 
 - name: Create a storage account waiting for completion (synchronous)

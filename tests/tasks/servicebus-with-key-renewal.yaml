@@ -12,6 +12,7 @@
   geekq.azbare.resource:
     group: "{{ resource_group }}"
     path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+    api_version: '2017-04-01'
     definition:
       location: "{{ azure_location }}"
       sku:
@@ -27,6 +28,7 @@
   geekq.azbare.resource:
     group: "{{ resource_group }}"
     path: /providers/Microsoft.ServiceBus/namespaces/myexample-bus1
+    api_version: '2017-04-01'
     state: check
   register: servicebus
   until: servicebus.response.properties.status == "Active"
