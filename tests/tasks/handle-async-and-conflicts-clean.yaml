@@ -1,0 +1,6 @@
+- name: Create virtual network with subnets
+  geekq.azbare.resource:
+    api_version: '2021-02-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.Network/virtualNetworks/tst-network
+    state: absent

@@ -3,6 +3,72 @@
     storage_account_name1: storagetest1{{ lookup('password', '/dev/null chars=ascii_lowercase length=10') }}
     storage_account_name2: storagetest2{{ lookup('password', '/dev/null chars=ascii_lowercase length=10') }}
 
+- name: Create virtual network with subnets
+  geekq.azbare.resource:
+    api_version: '2021-02-01'
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.Network/virtualNetworks/tst-network
+    definition:
+      location: "{{ azure_location }}"
+      properties:
+        addressSpace:
+          addressPrefixes:
+            - "10.0.0.0/8"
+        subnets:
+          - name: aks-nodes
+            properties:
+              addressPrefix: "10.0.1.0/24"
+              privateEndpointNetworkPolicies: Enabled
+              privateLinkServiceNetworkPolicies: Enabled
+          - name: aks-pods
+            properties:
+              addressPrefix: "10.240.0.0/16"
+              privateEndpointNetworkPolicies: Enabled
+              privateLinkServiceNetworkPolicies: Enabled
+              delegations:
+                - name: aks-delegation
+                  properties:
+                    serviceName: Microsoft.ContainerService/managedClusters
+          - name: ingress-public
+            properties:
+              addressPrefix: "10.0.2.0/24"
+          - name: backend-services
+            properties:
+              addressPrefix: "10.0.5.0/24"
+  register: vnet
+
+- name: Try to create some invalid Postgres flexibleServer, that resource return errors asynchronously
+  geekq.azbare.resource:
+    group: "{{ resource_group }}"
+    path: /providers/Microsoft.DBforPostgreSQL/flexibleServers/tst-pstgrs
+    api_version: '2021-06-01'
+    definition:
+      location: "{{ azure_location }}"
+      sku:
+        name: Standard_B1ms
+        tier: Burstable
+      properties:
+        administratorLogin: admin1
+        administratorLoginPassword: foobar78$
+        version: "13"
+        storage:
+          storageSizeGB: 32
+        network:
+          publicNetworkAccess: Disabled
+          delegatedSubnetResourceId: "/subscriptions/{{ lookup('geekq.azbare.subscription_id') }}/resourceGroups/{{ resource_group }}/providers/Microsoft.Network/virtualNetworks/tst-network/subnets/backend-services"
+          privateDnsZoneArmResourceId: /subscriptions/{{ lookup('geekq.azbare.subscription_id') }}/resourceGroups/{{ resource_group }}/providers/Microsoft.Network/privateDnsZones/foodnszone
+        highAvailability:
+          mode: Disabled
+  ignore_errors: true
+  register: async_invalid_subnet
+
+- name: Previous command should fail, show error details but not show stack trace
+  assert:
+    that:
+      - async_invalid_subnet is failed
+      - async_invalid_subnet.error_response.error.code == 'OperationFailed'
+      - ('missing required delegations' in async_invalid_subnet.error_response.error.message)
+
 - name: Post to some random invalid url
   geekq.azbare.resource:
     group: "{{ resource_group }}"

@@ -1,4 +1,4 @@
-- name: Run some quicker tests
+- name: Run all tests for handling Azure resources
   hosts: localhost
   gather_facts: no
   connection: local
@@ -13,9 +13,7 @@
   - name: Clean resources, run tests, clean again
     include_tasks: "{{ tasklist }}"
     loop:
-      - tasks/servicebus-with-key-renewal.yaml
-      - tasks/info.yaml
-      - tasks/servicebus-with-key-renewal-clean.yaml
+      - tasks/handle-async-and-conflicts.yaml
     loop_control:
       loop_var: tasklist
 

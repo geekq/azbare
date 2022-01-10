@@ -346,6 +346,9 @@ class AzureRMResource(AzureRMModuleBase):
         header_parameters['Content-Type'] = 'application/json; charset=utf-8'
         header_parameters['x-ms-client-request-id'] = str(uuid.uuid1())
 
+        self.logger.info(f"*** {comment} *** url:")
+        self.logger.info(f"{url}")
+        self.logger.info(f"query_parameters: {query_parameters}")
         request = None
         if method == 'GET':
             request = self._client.get(url, query_parameters)
@@ -362,8 +365,6 @@ class AzureRMResource(AzureRMModuleBase):
         elif method == 'MERGE':
             request = self._client.merge(url, query_parameters)
 
-        self.logger.info(f"*** {comment} *** url:")
-        self.logger.info(f"{url}")
         self.logger.info(f"request: {request}")
         response = self._client.send(request, header_parameters, body)
         self.logger.info(f"response.status_code: {response.status_code}")
@@ -378,12 +379,12 @@ class AzureRMResource(AzureRMModuleBase):
         if operation_url: # if Azure tells, which operations url to poll
             # example: https://management.azure.com/subscriptions/11.......-....-......./providers \
             # .../Microsoft.ContainerService/locations/westeurope/operations/....-....?api-version=2017-08-31
+            def async_url(self):
+                return operation_url
+            response.async_url = async_url.__get__(response)
+            self.logger.debug(f"Enriched the response with async_url {operation_url}")
             if self.force_async:
                 self.logger.debug(f"type(response): {type(response)}")
-                def async_url(self):
-                    return operation_url
-                self.logger.debug("***** enrich the response in that special case with async_url method")
-                response.async_url = async_url.__get__(response)
             else: # poll until operation completed
                 self.logger.info("Got response with headers for an async operation, will initiate long polling")
                 def get_long_running_output(response):
@@ -395,13 +396,32 @@ class AzureRMResource(AzureRMModuleBase):
                     polling_response = poller.result()
                     if polling_response: # if polling provides a new resources state - use it, otherwise...
                         response = polling_response
+                # ...otherwise keep the original response, e.g. from DELETE with 202 Accepted result
+                # and just log a warning
+                except CloudError as cloud_error:
+                    err = cloud_error
+                    self.logger.warning("***** poller.wait failed, CloudError:")
+                    self.logger.warning(err)
+                    self.logger.warning("Will return the original response (before polling)")
+                    self.logger.debug("***** enrich the response with more details")
+                    def api_error(self):
+                        return str(err.error)
+                    def error_response(self):
+                        return err.response
+                    response.api_error = api_error.__get__(response)
+                    response.error_response = error_response.__get__(response)
+                    self.logger.debug(f"response after polling: {response}")
                 except Exception as exc:
-                    # ...otherwise keep the original response, e.g. from DELETE with 202 Accepted result
-                    # and just log a warning
-                    self.logger.warn("***** poller.wait failed:")
-                    self.logger.warn(exc)
-                    self.logger.warn("Will return the original response (before polling)")
-                self.logger.debug(f"response after polling: {response}")
+                    self.logger.warning("***** poller.wait failed (other exception):")
+                    self.logger.warning(type(exc))
+                    self.logger.warning(dir(exc))
+                    self.logger.warning(exc)
+                    self.logger.warning("Will return the original response (before polling)")
+                    self.logger.debug("***** enrich the response with more details")
+                    def api_error(self):
+                        return str(exc)
+                    response.api_error = api_error.__get__(response)
+                    self.logger.debug(f"response after polling: {response}")
 
         self.logger.debug("\n")
         return response
@@ -489,6 +509,16 @@ class AzureRMResource(AzureRMModuleBase):
             self.results['changed'] = False
             return self.results
 
+    def parsed_response(self, query_result):
+        """Given an azure requests.Response, return the parsed data as structured and readably as possible"""
+        if len(query_result.text) > 0:
+            try:
+                return json.loads(query_result.text)
+            except Exception:
+                return query_result.text
+        else:
+            return None
+
     def handle_async_and_json_res(self, changed, query_result):
         """After a POST, DELETE, PUT check and parse the REST API call json result
         and fill this ansible module's results dict.
@@ -496,20 +526,19 @@ class AzureRMResource(AzureRMModuleBase):
         self.logger.debug(f"query_result: {query_result}")
         if hasattr(query_result, "async_url"):
             self.results['async_url'] = query_result.async_url()
-        if query_result.status_code not in [200, 201, 202, 204, 400, 404, 409]:
+        if hasattr(query_result, "api_error"): # nested, async error from long polling
+            self.results['failed'] = True
+            self.results['api_error'] = query_result.api_error()
+            if hasattr(query_result, "error_response"):
+                self.results['error_response'] = self.parsed_response(query_result.error_response())
+                self.results['error_status_code'] = query_result.error_response().status_code
+        elif query_result.status_code not in [200, 201, 202, 204, 400, 404, 409]:
             self.results['failed'] = True
             self.results['x-ms-request-id'] = query_result.headers.get('x-ms-request-id')
         elif query_result.status_code in [400, 404, 409]:
             self.results['failed'] = True
         self.results['status_code'] = query_result.status_code
-        if len(query_result.text) > 0:
-            try:
-                response = json.loads(query_result.text)
-            except Exception:
-                response = query_result.text
-        else:
-            response = None
-        self.results['response'] = response
+        self.results['response'] = self.parsed_response(query_result)
         self.results['changed'] = changed
         return self.results
 

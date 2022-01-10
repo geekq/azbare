@@ -17,11 +17,12 @@
       - tasks/servicebus-with-key-renewal-clean.yaml
 
       - tasks/info.yaml
-      - tasks/handle-409-conflict.yaml
+      - tasks/handle-async-and-conflicts.yaml
       - tasks/servicebus-with-key-renewal.yaml
       - tasks/k8s.yaml
 
       - tasks/k8s-clean.yaml
       - tasks/servicebus-with-key-renewal-clean.yaml
+      - tasks/handle-async-and-conflicts-clean.yaml
     loop_control:
       loop_var: tasklist
