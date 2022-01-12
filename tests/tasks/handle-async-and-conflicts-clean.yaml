@@ -1,4 +1,4 @@
-- name: Create virtual network with subnets
+- name: Delete the virtual network
   geekq.azbare.resource:
     api_version: '2021-02-01'
     group: "{{ resource_group }}"

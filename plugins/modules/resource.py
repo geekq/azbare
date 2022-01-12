@@ -527,7 +527,13 @@ class AzureRMResource(AzureRMModuleBase):
         if hasattr(query_result, "async_url"):
             self.results['async_url'] = query_result.async_url()
         if hasattr(query_result, "api_error"): # nested, async error from long polling
-            self.results['failed'] = True
+            self.logger.debug("Detected nested, async error from long polling")
+            self.logger.debug(f"api_error: {query_result.api_error()}")
+            if ('ResourceNotFound' in query_result.api_error()) and (query_result.request.method.upper() == 'DELETE'):
+                self.logger.debug(f"Handle 404 bug in azure DELETE with long polling")
+                self.results['failed'] = False
+            else:
+                self.results['failed'] = True
             self.results['api_error'] = query_result.api_error()
             if hasattr(query_result, "error_response"):
                 self.results['error_response'] = self.parsed_response(query_result.error_response())
