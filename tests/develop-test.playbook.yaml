@@ -1,4 +1,4 @@
-- name: Run all tests for handling Azure resources
+- name: Run some selected tests
   hosts: localhost
   gather_facts: no
   connection: local

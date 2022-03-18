@@ -376,6 +376,12 @@ class AzureRMResource(AzureRMModuleBase):
             # Some azure APIs return 202 Accepted with Location header containing the async operations
             # url and Retry-After header instead of their usual Azure-AsyncOperation header
             operation_url = response.headers.get('Location')
+        if response.status_code == 200 and len(response.text) > 0 and method == 'GET':
+            # Some azure API return 200 and set Azure-AsyncOperation to some value,
+            # but return the result immediately
+            # For example: providers/Microsoft.StreamAnalytics/streamingjobs
+            # Workaround for that case - ignore the Azure-AsyncOperation, use the direct result
+            operation_url = None
         if operation_url: # if Azure tells, which operations url to poll
             # example: https://management.azure.com/subscriptions/11.......-....-......./providers \
             # .../Microsoft.ContainerService/locations/westeurope/operations/....-....?api-version=2017-08-31
